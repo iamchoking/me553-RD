@@ -13,7 +13,7 @@ inline Eigen::Vector3d getEndEffectorPosition (const Eigen::VectorXd& gc) {
   ///// Your Code Here /////
   //////////////////////////
 
-  return Eigen::Vector3d::Ones(); /// replace this
+  return 0*Eigen::Vector3d::Ones(); /// replace this
 }
 
 #endif // ME553_2022_SOLUTIONS_EXERCISE1_STUDENTID_HPP_

@@ -1,4 +1,5 @@
 
+message(STATUS "cmake prefix path: ${CMAKE_PREFIX_PATH}")
 find_package(raisim CONFIG REQUIRED)
 
 function(create_executable app_name file_name)
