@@ -12,7 +12,7 @@
 
 int main(int argc, char* argv[]) {
   // create raisim world
-  raisim::World world; // physics world
+  raisim::World world; // physics world 
   raisim::RaisimServer server(&world); // visualization server
   // world.addGround(); //we aren't integrating. we don't really need ground
 
@@ -20,6 +20,7 @@ int main(int argc, char* argv[]) {
   auto anymal = world.addArticulatedSystem(std::string(_MAKE_STR(RESOURCE_DIR)) + "/anymal_c/urdf/anymal_TEST.urdf");
   anymal->setName("anymal");
   server.focusOn(anymal);
+  
 
   // anymal configuration
   // for randomness
@@ -132,6 +133,8 @@ int main(int argc, char* argv[]) {
   auto pos_diff = solO - pos.e();
   std::cout << "POS DIFF. : " << pos_diff.transpose() << "( norm: " << pos_diff.norm() << ")" <<std::endl;
 
+  std::cout << "this was also tested on VSCode!!!!~" << std::endl;
+
   // base
   std::cout << std::endl;
   std::cout << "ADDITIONAL CALCS" << std::endl;
@@ -141,7 +144,6 @@ int main(int argc, char* argv[]) {
   anymal->getBaseOrientation(quat);
   std::cout << "Converted Base Orientation :" << std::endl << ori2 << std::endl;
   std::cout << "Base Orientation in quat: " << quat.e().transpose() << std::endl;
-
   // visualization
   server.launchServer();
   for (int i=0; i<2000000; i++)
