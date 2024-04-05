@@ -4,6 +4,8 @@ homework repo for ME553 robot dynamics - 2024 spring (Hyungho Chris Choi)
 Basic manipulation references this [gist](https://gist.github.com/injoonH/84f05d64b847cc18b9aeb597362fb512) by injoonH:
 (and this [repo](https://github.com/iamchoking/me491-LBC/tree/main) (previous homework for learning based control))
 
+upstream (skeleton code repo): [GitHub](https://github.com/jhwangbo/ME553_2024)
+
 Create / Cloning repo (+with upstream)
 ```sh
 # (create a repo (named <me553-RD> in web)
