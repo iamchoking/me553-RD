@@ -321,21 +321,13 @@ Link* setupLinks() {
   auto lhHip = new Link("LH_HIP",'a',base);
   // base
   // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
-  tempT.setXyz (-0.2999,0.104,0.0);
-  tempT.setRpy (-2.61799387799,0,-3.14159265359);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
+  // order: x y z   R P Y  (type = f) (ax ay az) (gcIdx gvIdx)
   tempT.setProfile(-0.2999,0.104,0.0,  -2.61799387799,0,-3.14159265359);
   lhHip -> addTrans(tempT);
   // LH_HAA
 
   // <<LH_HAA>> (revolute) <axis xyz="-1 0 0"/> (gc[13])
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (0,0,0);
-  tempT.setAxis(-1,0,0);
-  tempT.setTyp ('r');
-  tempT.setIdx (13,12);
-  tempT.setProfile(0,0,0,  0,0,0, 'r', -1,0,0, 13,12);
+  tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', -1,0.0,0.0, 13,12);
   lhHip -> addTrans(tempT);
   // LH_HIP
 
@@ -343,81 +335,46 @@ Link* setupLinks() {
   auto lhThi   = new Link("LH_THIGH",'a',lhHip);
   // LH_HIP
   // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (-2.61799387799,0,-3.14159265359);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
-  tempT.setProfile(0,0,0,  -2.61799387799,0,-3.14159265359);
+  tempT.setProfile(0.0,0.0,0.0,  -2.61799387799,0.0,-3.14159265359);
   lhThi -> addTrans(tempT);
   // LH_hip_fixed
   // <LH_hip_fixed_LH_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0599 0.08381 0.0"/>
-  tempT.setXyz (-0.0599,0.08381,0.0);
-  tempT.setRpy (0,0,1.57079632679);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
-  tempT.setProfile(-0.0599,0.08381,0.0,  0,0,1.57079632679);
+  tempT.setProfile(-0.0599,0.08381,0.0,  0.0,0.0,1.57079632679);
   lhThi -> addTrans(tempT);
   // LH_HFE
   // <<LH_HFE>> (revolute) <axis xyz="1 0 0"/> (gc[14])
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (0,0,0);
-  tempT.setAxis(1,0,0);
-  tempT.setTyp ('r');
-  tempT.setIdx (14,13);
-  tempT.setProfile(0,0,0,  0,0,0, 'r', 1,0,0, 14,13);
+  tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', 1,0.0,0.0, 14,13);
   lhThi -> addTrans(tempT);
 
   // "SHANK"
   auto lhSha = new Link("LH_SHANK",'a',lhThi);
   // LH_THIGH
   // <LH_THIGH_LH_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (0,0,-1.57079632679);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
   lhSha -> addTrans(tempT);
   // LH_thigh_fixed
   // <LH_thigh_fixed_LH_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0 0.1003 -0.285"/>
-  tempT.setXyz (0,0.1003,-0.285);
-  tempT.setRpy (0,0,1.57079632679);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
-  tempT.setProfile(0,0.1003,-0.285,  0,0,1.57079632679);
+  tempT.setProfile(0.0,0.1003,-0.285,  0.0,0.0,1.57079632679);
   lhSha -> addTrans(tempT);
   // LH_KFE
   // <<LH_KFE>> (revolute) <axis xyz="1 0 0"/> (gc[15])
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (0,0,0);
-  tempT.setAxis(1,0,0);
-  tempT.setTyp ('r');
-  tempT.setIdx (15,14);
-  tempT.setProfile(0,0,0,  0,0,0, 'r', 1,0,0, 15,14);
+  tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', 1,0.0,0.0, 15,14);
   lhSha -> addTrans(tempT);
 
   // "FOOT"
   auto lhFoot = new Link("LH_FOOT",'e',lhSha);
   // LH_SHANK
   // <LH_SHANK_LH_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
-  tempT.setXyz (0,0,0);
-  tempT.setRpy (0,0,-1.57079632679);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
   lhFoot -> addTrans(tempT);
   // LH_shank_fixed
   // <LH_shank_fixed_LH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 0.01305 -0.33797"/>
-  tempT.setXyz (-0.08795,0.01305,-0.33797);
-  tempT.setRpy (0,0,0);
-  tempT.setAxis(0,0,0);
-  tempT.setTyp ('f');
   tempT.setProfile(-0.08795,0.01305,-0.33797,  0.0,0.0,0.0);
   lhFoot -> addTrans(tempT);
   // LH_FOOT <-- (objective joint origin)
 
   // return base;
   // return lhHip;
-
   return lhFoot;
 }
 
