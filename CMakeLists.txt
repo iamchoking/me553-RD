@@ -11,12 +11,17 @@ create_executable(exercise3 src/exercise3.cpp)
 create_executable(exercise4 src/exercise4.cpp)
 create_executable(exercise5 src/exercise5.cpp)
 
+# augumented skeleton codes
+create_executable(ex1_chh   src/ex1_chh.cpp)
+create_executable(ex2_chh   src/ex2_chh.cpp)
+
 # examples
 create_executable(rotation_example_angle_axis src/rotation_example_angle_axis.cpp)
 create_executable(rotation_example_euler_angles src/rotation_example_euler_angles.cpp)
 
 # exam
 create_executable(final_exam src/final_exam.cpp)
+
 
 
 

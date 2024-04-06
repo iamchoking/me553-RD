@@ -1,13 +1,10 @@
-//
-// Created by Jemin Hwangbo on 2022/03/17.
-//
-
+////////////////////////// ORIGINAL-SKELETON /////////////////
 
 #define _MAKE_STR(x) __MAKE_STR(x)
 #define __MAKE_STR(x) #x
 
 #include "raisim/RaisimServer.hpp"
-#include "exercise2_STUDENTID.hpp"
+#include "exercise2_20190673.hpp"
 
 int main(int argc, char* argv[]) {
   auto binaryPath = raisim::Path::setFromArgv(argv[0]);
