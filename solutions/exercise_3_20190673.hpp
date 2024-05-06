@@ -1,7 +1,6 @@
 #pragma once
 
-
-/// do not change the name of the method
+// PASTE HERE
 inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
 
   /// !!!!!!!!!! NO RAISIM FUNCTIONS HERE !!!!!!!!!!!!!!!!!
@@ -9,3 +8,4 @@ inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
 
   return Eigen::MatrixXd::Ones(18,18);
 }
+// TO HERE
