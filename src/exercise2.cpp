@@ -4,7 +4,7 @@
 #define __MAKE_STR(x) #x
 
 #include "raisim/RaisimServer.hpp"
-#include "exercise2_20190673.hpp"
+#include "exercise_2_20190673.hpp"
 
 int main(int argc, char* argv[]) {
   auto binaryPath = raisim::Path::setFromArgv(argv[0]);

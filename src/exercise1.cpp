@@ -1,7 +1,7 @@
 #define _MAKE_STR(x) __MAKE_STR(x)
 #define __MAKE_STR(x) #x
 
-#include "exercise1_20190673.hpp"
+#include "exercise_1_20190673.hpp"
 #include "raisim/RaisimServer.hpp"
 
 int main(int argc, char* argv[]) {

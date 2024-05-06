@@ -9,7 +9,7 @@
 #include "raisim/RaisimServer.hpp"
 #include "random_coordinates.hpp"
 
-#include "exercise2_20190673.hpp"
+#include "exercise_2_20190673.hpp"
 // excercise1_20190673.hpp
 
 // hpp end
