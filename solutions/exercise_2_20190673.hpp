@@ -126,7 +126,7 @@ public:
   void setTyp (char newTyp = 'f'){typ=newTyp;}
   void setIdx (int gcIndex = -1,int gvIndex = -1){gcIdx = gcIndex;gvIdx = gvIndex;}
 
-  void setProfile(double* xyz,double* rpy,char newTyp = 'f',double* axis = nullptr,int gcIndex = -1,int gvIndex = -1){
+  [[maybe_unused]] void setProfile(double* xyz,double* rpy,char newTyp = 'f',double* axis = nullptr,int gcIndex = -1,int gvIndex = -1){
     setXyz (xyz[1] ,xyz[2] ,xyz[3] );
     setRpy (rpy[1] ,rpy[2] ,rpy[3] );
     setAxis(axis[1],axis[2],axis[3]);

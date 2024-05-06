@@ -106,7 +106,7 @@ Eigen::Matrix3d hcInertia(double ixx, double ixy, double ixz, double iyy, double
   return I;
 }
 
-Eigen::MatrixXd hc6x6(double m,double ixx, double ixy, double ixz, double iyy, double iyz, double izz){
+[[maybe_unused]] Eigen::MatrixXd hc6x6(double m,double ixx, double ixy, double ixz, double iyy, double iyz, double izz){
   Eigen::MatrixXd I;
   I.resize(6,6);
   I.setZero();
@@ -138,7 +138,7 @@ public:
     }
   }
 
-  Trans(Eigen::Vector3d r, Eigen::Matrix3d R){ //simple creation (result of evalTrans)
+  Trans(const Eigen::Vector3d& r, const Eigen::Matrix3d& R){ //simple creation (result of evalTrans)
     initFixed();
     originPos = r;
     originRot = R;
@@ -158,7 +158,7 @@ public:
   void setIdx (int gcIndex = -1,int gvIndex = -1){gcIdx = gcIndex;gvIdx = gvIndex;}
 
   // axis given as an array
-  void setProfile(double* xyz,double* rpy,char newTyp = 'f',double* ax3d = nullptr,int gcIndex = -1,int gvIndex = -1){
+  [[maybe_unused]] void setProfile(double* xyz,double* rpy,char newTyp = 'f',double* ax3d = nullptr,int gcIndex = -1,int gvIndex = -1){
     setXyz (xyz[1] ,xyz[2] ,xyz[3] );
     setRpy (rpy[1] ,rpy[2] ,rpy[3] );
     setAxis(ax3d[1],ax3d[2],ax3d[3]);
@@ -202,7 +202,7 @@ public:
 
   // evaluate the full transform for the given generalized coord (pure function).
   // returns a fixed transformation
-  Trans* evalTrans(const Eigen::VectorXd &gc){
+  Trans evalTrans(const Eigen::VectorXd &gc){
     // urdf convention does the "origin move" first, then the actuation wrt axis.
     Eigen::Vector3d newPos = originPos;
     Eigen::Matrix3d newRot = originRot;
@@ -216,7 +216,7 @@ public:
     else if(typ == 'p'){ //UNTESTED
       newPos = originPos + gc[gcIdx] * (originRot*axis);
     }
-    return new Trans(newPos,newRot);
+    return {newPos,newRot}; // equivalent to evalTrans(newPos,newRot)
   }
 };
 
@@ -228,22 +228,85 @@ public:
 
   bool isEmpty;
 
-  Inertia(double mass,const Eigen::Matrix3d& momentInertia,const Trans& centerOfMass){
+  Inertia(double mass,const Eigen::Matrix3d& momentInertia,const Trans& centerOfMass){ // standard init
     m = mass;
     I = momentInertia;
     com = centerOfMass;
     isEmpty = false;
+
+    // rotate I right away if the com's rotation is not trivial
+    straighten();
+
   }
 
-  Inertia(){
+  Inertia(const Inertia& i){
+    m = i.m;
+    I = i.I;
+    com = i.com;
+    isEmpty = i.isEmpty;
+  }
+
+  Inertia(){ // empty init
+    clear();
+  }
+
+  void straighten(){
+    if (!com.originRot.isIdentity()) {I = com.originRot * I * com.originRot.transpose();}
+    com.originRot = Eigen::Matrix3d::Identity();
+  }
+
+  void clear(){
     m = 0;
     I = Eigen::Matrix3d::Zero();
     com = Trans();
     isEmpty = true;
   }
 
+  void merge(Inertia* i2){
+    // i2 must be in the same coordinate frame as i2
+    if(i2->isEmpty){return;}
+    double m1 = m;
+    double m2 = i2 -> m;
+    Eigen::Vector3d rcom = (m1*com.originPos + m2*(i2->com.originPos))/(m1+m2);
+    Eigen::Vector3d r1 = com.originPos-rcom;
+    Eigen::Vector3d r2 = i2->com.originPos - rcom;
+
+    m = m + i2->m;
+    I = I + i2->I - m1* skew3d(r1) * skew3d(r1) - m2*skew3d(r2)* skew3d(r2);
+    com.originPos = rcom;
+  }
+
+  void addInertia(Inertia* i){
+    if(isEmpty){
+      m = i->m;
+      I = i->I;
+      com = i->com;
+      isEmpty = false;
+    }
+    else{
+      merge(i);
+    }
+  }
+
+  void setProfile(double x,double y,double z,double R,double P,double Y,
+                  double mass,double ixx, double ixy, double ixz, double iyy, double iyz, double izz){
+    com.setProfile(x,y,z,R,P,Y);
+    m = mass;
+    I = hcInertia(ixx,ixy,ixz,iyy,iyz,izz);
+    isEmpty=false;
+    straighten(); //important to straighten the orientation
+  }
+
+  /// (pure function) returns another inertia that is expressed on another frame
+  [[nodiscard]] Inertia expressedIn(Trans expT) const{ // express inertia in this frame
+    expT.attachTrans(com); //expT comes first (attach com to expT)
+    return {m,I,expT};
+    // return Inertia(m,I,expT); // (equivalent)
+  }
+
 
 };
+
 
 class Link{
 public:
@@ -255,13 +318,16 @@ public:
   // ex2: !! changed this from "final" to "root" references!!
 
   Trans bodyT; // full transform from (parent^2<>parent) to (parent<>this) (r,R,p,gcIdx,gvIdx) ("assume parent^2 is fixed to world")
+  Inertia bodyI; // body inertia (of the current body (expressed with body origin as origin)
   // transform order (urdf convention) r -> R -> p
   // translate by r (expressed in (p^2<>p) frame)
   // rotate by R (expressed in (p^2<>p) frame)
   // actuate wrt p by (gc[gcIdx]) (expressed in new frame(r -> R))
 
   // state variable (another transform)
-  Trans worldT;  // transform from world to i (world --> "root" of this link)
+  Trans worldT;  // transform from world to i  (world --> frame attached to parent (used for jacobian))
+  Trans fullT;   // transform from world to i' (world --> frame attached to self)
+  Inertia worldI;  // transform body inertia to world inertia
 
   // flags
   bool calcKin;  // pass 1: kinematics calculated (root->leaf)
@@ -274,25 +340,38 @@ public:
     calcKin = false; // pass 1: kinematics calculated (root->leaf)
     calcComp = false; // pass 2: composite inertia calculated (leaf -> root)
 
-    bodyT  = *(new Trans());
-    worldT = *(new Trans());
+    bodyT  = Trans();
+    bodyI  = Inertia();
+
+    worldT = Trans();
+    fullT  = Trans();
+
+    worldI = Inertia();
+
+    parent = nullptr; //this will be modified within the Robot Class
   }
 
   void addTrans(const Trans& newT){
-    // add an additional transformation at the end of the link
+    // add a transformation at the end of the link
     // only modifies constant properties
     bodyT.attachTrans(newT);
   }
 
-  Trans* propLinkKin(const Eigen::VectorXd& gc){ //returns frame for (i') frame (instead of (i))
-    return worldT.evalTrans(gc);
+  void addInertia(Inertia newI){
+    bodyI.addInertia(&newI);
   }
+
+  // Trans propLinkKin(const Eigen::VectorXd& gc){ //returns frame for (i') frame (instead of (i))
+  //   return worldT.evalTrans(gc);
+  // }
 
   void calcLinkKin(const Eigen::VectorXd& gc){
     if(typ == 'b'){ //base case (no parent link, get wr / wR from base-pos)
       // std::cout<< "base floating body: " << gc.transpose() << std::endl;
       worldT.originPos = gc.segment(0,3);
       worldT.originRot = quatToRot(gc.segment(3,4));
+      fullT = worldT;
+      resolveWorldI();
       calcKin = true;
       return;
     }
@@ -303,16 +382,23 @@ public:
     // std::cout << "parent ori" << worldT.originRot << std::endl;
     // std::cout << "parent typ" << worldT.typ << std::endl;
 
-    worldT = *(parent->propLinkKin(gc));
+    // worldT = parent->propLinkKin(gc);
+    worldT = parent->fullT; //get full transform of parent (transform of parent's "parent joint" (attached to parent))
     worldT.attachTrans(bodyT); // just attach my own transform!
-
+    fullT = worldT.evalTrans(gc);
     // although each links have to keep axis information (for J), the output for kinematics must be evaluated!
+    resolveWorldI();
     calcKin = true;
     // return;
   }
 
+  /// only call this inside calcLinkKin!
+  void resolveWorldI(){
+    worldI = bodyI.expressedIn(fullT);
+  }
+
   /// add influence of this link to the provided Jp
-  void augmentJp(Eigen::MatrixXd& Jp,const Eigen::VectorXd& gc, const Eigen::VectorXd& wree){
+  void augmentJp(Eigen::MatrixXd& Jp, const Eigen::VectorXd& wree){
     // wree: the position of end effector (point of question) in world coordinates.
     if (!calcKin){throw(std::invalid_argument("This link's kinematics is not calculated!"));}
 
@@ -336,7 +422,7 @@ public:
     }
   }
 
-  void augmentJa(Eigen::MatrixXd Ja,const Eigen::VectorXd& gc, const Eigen::VectorXd& wree){
+  void augmentJa(Eigen::MatrixXd Ja, const Eigen::VectorXd& wree){
     // wree: the position of end effector (point of question) in world coordinates.
     if (!calcKin){throw(std::invalid_argument("This link's kinematics is not calculated!"));}
 
@@ -387,11 +473,15 @@ public:
     }
   }
 
-  int findLinkIdx(std::string n){
+  int findLinkIdx(const std::string& n){
     for(size_t i = 0;i<links.size();i++){
       if(links[i]->name == n){return int(i);}
     }
     return -1;
+  }
+
+  Link* getLinkByName(const std::string& n){
+    return links[findLinkIdx(n)];
   }
 
   void addLink(Link* l,Link* p = nullptr){
@@ -428,31 +518,33 @@ public:
   /// Positional Jacobian (modifier)
   void calculateJp(Eigen::MatrixXd& Jp,const Eigen::VectorXd& gc,const std::string& linkName,const Eigen::Vector3d &wree){
     // initialize
+    if(!calcKin){calculateKinematics(gc);}
     Jp.resize(3,long(gvDim));
     Jp.setZero();
 
     Link* l = links[findLinkIdx(linkName)];
     while(l->parent != nullptr){
-      l->augmentJp(Jp,gc,wree);
+      l->augmentJp(Jp,wree);
       l = l->parent;
     }
     //final time for base
-    l->augmentJp(Jp,gc,wree);
+    l->augmentJp(Jp,wree);
   }
 
   /// Angular Jacobian
   void calculateJa(Eigen::MatrixXd& Ja,const Eigen::VectorXd& gc,const std::string& linkName,const Eigen::Vector3d &wree){
     // initialize
+    if(!calcKin){calculateKinematics(gc);}
     Ja.resize(3,long(gvDim));
     Ja.setZero();
 
     Link* l = links[findLinkIdx(linkName)];
     while(l->parent != nullptr){
-      l->augmentJa(Ja,gc,wree);
+      l->augmentJa(Ja,wree);
       l = l->parent;
     }
     //final time for base
-    l->augmentJa(Ja,gc,wree);
+    l->augmentJa(Ja,wree);
   }
 
   [[maybe_unused]] void calculateJ(Eigen::MatrixXd& J,const Eigen::VectorXd& gc,const std::string& linkName,const Eigen::Vector3d &wree){
@@ -467,11 +559,16 @@ public:
     J << Jp,Ja;
   }
 
-
   Trans* getTrans(const std::string &linkName){
     auto l = links[findLinkIdx(linkName)];
     if(!(l->calcKin)){throw(std::invalid_argument("Link Kinematics not yet calculated!"));}
-    return &(l->worldT);
+    return &(l->fullT);
+  }
+
+  Inertia* getInertia(const std::string &linkName){
+    auto l = links[findLinkIdx(linkName)];
+    if(!(l->calcKin)){throw(std::invalid_argument("Link Kinematics not yet calculated!"));}
+    return &(l->worldI);
   }
 
   Eigen::Vector3d getPos(const Eigen::VectorXd &gc,const std::string &linkName){
@@ -479,23 +576,28 @@ public:
     return getTrans(linkName)->originPos;
   }
 
+  Eigen::Vector3d getCom(const Eigen::VectorXd &gc,const std::string &linkName){
+    calculateKinematics(gc);
+    return getInertia(linkName)->com.originPos;
+  }
+
 };
 
-Robot* initRobot() {
-  // all the "hard-coding" is done in this function.
-  auto robot = new Robot(19,18);
+void initRobotTrans(Robot& robot) {
+  // HARD-CODING: Link transformations.
 
-  Trans tempT = *(new Trans());
+  Trans tempT = Trans();
 
+  ////////////////////// LEFT-HIND LEG START  ////////////////////////
   // note: though this can be further simplified, this is left as-is to mimic the workflow in [anymal.urdf].
   // "BASE"
   auto base    = new Link("BASE",'b');
-  robot->addLink(base);
+  robot.addLink(base);
   // base
 
   // "HIP"
   auto lhHip = new Link("LH_HIP",'a');
-  robot->addLink(lhHip,base);
+  robot.addLink(lhHip,base);
   // base
   // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
   // order: x y z   R P Y  (type = f) (ax ay az) (gcIdx gvIdx)
@@ -510,7 +612,7 @@ Robot* initRobot() {
 
   // "THIGH"
   auto lhThi   = new Link("LH_THIGH",'a');
-  robot->addLink(lhThi,lhHip);
+  robot.addLink(lhThi,lhHip);
   // LH_HIP
   // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  -2.61799387799,0.0,-3.14159265359);
@@ -526,7 +628,7 @@ Robot* initRobot() {
 
   // "SHANK"
   auto lhSha = new Link("LH_SHANK",'a');
-  robot->addLink(lhSha,lhThi);
+  robot.addLink(lhSha,lhThi);
   // LH_THIGH
   // <LH_THIGH_LH_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
@@ -542,7 +644,7 @@ Robot* initRobot() {
 
   // "FOOT"
   auto lhFoot = new Link("LH_FOOT",'e');
-  robot->addLink(lhFoot,lhSha);
+  robot.addLink(lhFoot,lhSha);
   // LH_SHANK
   // <LH_SHANK_LH_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
@@ -553,11 +655,96 @@ Robot* initRobot() {
   lhFoot -> addTrans(tempT);
   // LH_FOOT <-- (objective joint origin)
 
-  // return base;
-  // return lhHip;
-  return robot;
+  ////////////////////// LEFT-HIND LEG FINISH ////////////////////////
 }
 
+void initRobotInertia(Robot& robot){
+  auto tempT  = Trans(); // the "cumulating" trans
+  auto tempTT = Trans(); // the "adding" trans
+  auto tempI  = Inertia();
+
+  ////////////////////// LEFT-HIND LEG START  ////////////////////////
+  //---attached to BASE ---
+  // (base --"base_LH_HAA" --> LH_HAA) (base added later)
+    // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
+    tempT.setProfile(-0.2999,0.104,0.0,  -2.61799387799,0,-3.14159265359);
+    // [LH_HAA]
+    // <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // <mass value="2.04"/>
+    // <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="9.909e-05" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,0,0,0,2.04,0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
+    robot.getLinkByName("BASE")->addInertia(tempI.expressedIn(tempT));
+
+  //---attached to LH_HIP ---
+  // (LH_HIP --"LH_HIP_LH_hip_fixed"--> LH_hip_fixed --> "LH_hip_fixed_LH_HFE" --> LH_HFE)
+    // [LH_HIP]
+    // <origin rpy="0 0 0" xyz="0 0 0"/>
+    // <mass value="0.001"/>
+    // <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+    tempI.setProfile(0,0,0,0,0,0,0.001,0.000001,0.0,0.0,0.000001,0.0,0.000001);
+    robot.getLinkByName("LH_HIP")->addInertia(tempI);
+
+    // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
+    tempT.setProfile(0.0,0.0,0.0,  -2.61799387799,0.0,-3.14159265359);
+    // [LH_hip_fixed]
+    // <origin rpy="0 0 0" xyz="-0.048 0.008 -0.003"/>
+    // <mass value="0.74"/>
+    // <inertia ixx="0.001393106" ixy="-8.4012e-05" ixz="-2.3378e-05" iyy="0.003798579" iyz="7.1319e-05" izz="0.003897509"/>
+    tempI.setProfile(-0.048,0.008,-0.003,0,0,0,0.74,0.001393106,-8.4012e-05,-2.3378e-05,0.003798579,7.1319e-05,0.003897509);
+    robot.getLinkByName("LH_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    // <LH_hip_fixed_LH_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0599 0.08381 0.0"/>
+    tempTT.setProfile(-0.0599,0.08381,0.0,  0.0,0.0,1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [LH_HFE]
+    // <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // <mass value="2.04"/>
+    // <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="9.909e-05" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,0,0,0,2.04 ,0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
+    robot.getLinkByName("LH_HIP")->addInertia(tempI.expressedIn(tempT));
+
+  //---attached to LH_THIGH ---
+  // (LH_THIGH --"LH_THIGH_LH_thigh_fixed"--> LH_thigh_fixed --> "LH_thigh_fixed_LH_KFE" --> LH_KFE)
+    //[LH_THIGH]
+    // <origin rpy="0 0 0" xyz="0 0 0"/>
+    // <mass value="0.001"/>
+    // <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+    tempI.setProfile(0,0,0,0,0,0,0.001,0.000001,0.0,0.0,0.000001,0.0,0.000001);
+    robot.getLinkByName("LH_THIGH")->addInertia(tempI);
+
+    // <LH_THIGH_LH_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
+    // [LH_thigh_fixed]
+    // <origin rpy="0 0 0" xyz="-0.0 0.018 -0.169"/>
+    // <mass value="1.03"/>
+    // <inertia ixx="0.018644469" ixy="-5.2e-08" ixz="-1.0157e-05" iyy="0.019312599" iyz="0.002520077" izz="0.002838361"/>
+    tempI.setProfile(0,0,0,0,0.018,-0.169,1.03,0.018644469,-5.2e-08,-1.0157e-05,0.019312599,0.002520077,0.002838361);
+    robot.getLinkByName("LH_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    // <LH_thigh_fixed_LH_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0 0.1003 -0.285"/>
+    tempTT.setProfile(0.0,0.1003,-0.285,  0.0,0.0,1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [LH_KFE]
+    // <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // <mass value="2.04"/>
+    // <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="9.909e-05" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,0,0,0,2.04 ,0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
+    robot.getLinkByName("LH_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+  //---attached to LH_SHANK ---
+
+  //---attached to LH_FOOT --- (<- "ghost" link (nothing attached)) ---
+  ////////////////////// LEFT-HIND LEG FINISH ////////////////////////
+
+}
+
+Robot initRobot(){
+  Robot robot = Robot(19,18);
+  initRobotTrans(robot);
+  initRobotInertia(robot);
+
+  return robot;
+}
 
 inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
 
@@ -578,7 +765,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   raisim::Vec<3> pos;
   anymal->getFramePosition("LH_shank_fixed_LH_FOOT", pos);
 
-  std::cout << "Foot POS: " << r->getPos(gc,"LH_FOOT").transpose() << std::endl;
+  std::cout << "Foot POS: " << r.getPos(gc,"LH_FOOT").transpose() << std::endl;
   std::cout << "True POS: " << pos.e().transpose() << std::endl ;
 
   std::cout << std::endl;
@@ -621,7 +808,7 @@ int main(int argc, char* argv[]) {
 
   // std::cout<<"mass matrix should be \n"<< anymal->getMassMatrix().e()<<std::endl;
   for (size_t i = 0; i<2000; i++){
-    RS_TIMED_LOOP(world.getTimeStep()*2e6);
+    RS_TIMED_LOOP(world.getTimeStep()*2e6)
     if(i%10 == 0){
       correct = correct && analyzeStep(gc,i,&server,anymal);
     }
