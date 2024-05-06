@@ -22,36 +22,36 @@
 // (world)
 // (implicit floating joint) (gc[0]~gc[6])
 //
-// "BASE"
-// base
+// [BASE]
+// (floating base)
+
+// [LH_HIP]
 // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
-//
-// "LH_BASE"
 // LH_HAA
 // <<LH_HAA>> (revolute) <axis xyz="-1 0 0"/> (gc[13])
-//
-// "HIP"
 // LH_HIP
+//
+// [LH_THIGH]
 // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
 // LH_hip_fixed
 // <LH_hip_fixed_LH_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0599 0.08381 0.0"/>
 // LH_HFE
 // <<LH_HFE>> (revolute) <axis xyz="1 0 0"/> (gc[14])
-//
-// "THIGH"
 // LH_THIGH
+//
+// [LH_SHANK]
 // <LH_THIGH_LH_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
 // LH_thigh_fixed
 // <LH_thigh_fixed_LH_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0 0.1003 -0.285"/>
 // LH_KFE
 // <<LH_KFE>> (revolute) <axis xyz="1 0 0"/> (gc[15])
-//
-// "SHANK"
 // LH_SHANK
+//
+// [LH_FOOT]
 // <LH_SHANK_LH_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
 // LH_shank_fixed
 // <LH_shank_fixed_LH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 0.01305 -0.33797"/>
-// LH_FOOT <-- (objective joint origin)
+// LH_FOOT
 
 Eigen::Matrix3d quatToRot(Eigen::Vector4d q){
   // ***we assume q is normalized and valid (q.norm() > 0)
@@ -220,7 +220,30 @@ public:
   }
 };
 
-//TODO: throw warning/error if an articulated link does not have a gcindex
+class Inertia{
+public:
+  double m;
+  Eigen::Matrix3d I;
+  Trans com;
+
+  bool isEmpty;
+
+  Inertia(double mass,const Eigen::Matrix3d& momentInertia,const Trans& centerOfMass){
+    m = mass;
+    I = momentInertia;
+    com = centerOfMass;
+    isEmpty = false;
+  }
+
+  Inertia(){
+    m = 0;
+    I = Eigen::Matrix3d::Zero();
+    com = Trans();
+    isEmpty = true;
+  }
+
+
+};
 
 class Link{
 public:
