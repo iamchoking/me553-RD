@@ -258,11 +258,12 @@ def main():
     #     except:
     #         print("no actuated axis")
 
-    # print(generate_trans_profile(robot_dict,"LH_shank_fixed_LH_FOOT",13,4))
-    # print(generate_inertia_profile(robot_dict, "LH_FOOT", 4))
+    # print(generate_trans_profile(robot_dict,"base_to_lidar_cage",13,4))
+    print(generate_trans_profile(robot_dict,"base_hatch",13,4))
+    print(generate_inertia_profile(robot_dict, "hatch", 4))
 
     # generate_leg_trans(robot_dict,"RH")
-    generate_leg_inertia(robot_dict, "RH")
+    # generate_leg_inertia(robot_dict, "RH")
 
 
 main()
