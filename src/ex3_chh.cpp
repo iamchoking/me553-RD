@@ -394,20 +394,6 @@ public:
     // return;
   }
 
-  void calcCompInertia(){
-    for(auto child:children){
-      if(!(child->calcComp) || !(child->calcKin)){throw(std::invalid_argument("The children's composite inertia is not calculated!"));}
-    }
-    std::cout << "[" << name << "] input check complete" << std::endl;
-    compI = worldI;
-    for(auto child:children){
-      compI.merge(&(child->compI));
-    }
-
-    calcComp = true;
-    // return;
-  }
-
   /// only call this inside calcLinkKin!
   void resolveWorldI(){
     worldI = bodyI.expressedIn(fullT);
@@ -457,6 +443,44 @@ public:
     }
   }
 
+  void calcCompInertia(){
+  for(auto child:children){
+    if(!(child->calcComp) || !(child->calcKin)){throw(std::invalid_argument("The children's composite inertia is not calculated!"));}
+  }
+  // std::cout << "[" << name << "] input check complete" << std::endl;
+  compI = worldI;
+  for(auto child:children){
+    compI.merge(&(child->compI));
+  }
+
+  calcComp = true;
+  // return;
+  }
+
+  Eigen::MatrixXd getS(){ //retrieve motion subspace matrix
+    Eigen::MatrixXd S;
+    if(typ == 'b'){
+      S.resize(6,6);
+      S.setIdentity();
+      return S;
+    }
+
+    if(typ == 'a'){
+      S.resize(6,1);
+      if(worldT.typ == 'r'){
+        S << worldT.axis,0,0,0; //this is expressed in terms of worldT!
+        return S;
+      }
+      // TODO: prismatic motion subspace
+    }
+
+    if(typ == 'e'){ //no dof (this should not be possible)
+      S.resize(1,1);
+      S.setZero();
+      return S;
+    }
+  }
+
 };
 
 class Robot{
@@ -499,6 +523,7 @@ public:
   }
 
   int findLinkIdx(const int& gvIndex){ //find index with gv index
+    if(gvIndex < 6){return 0;} //base link case
     for(size_t i = 0;i<links.size();i++){
       if(links[i]->bodyT.gvIdx == gvIndex){return int(i);}
     }
@@ -594,28 +619,50 @@ public:
     calculateJa(Ja,gc,linkName,wree);
 
     J << Jp,Ja;
+  }
 
   void calculateCompositeInertia(){
     if(!calcKin){throw(std::invalid_argument("This robot's kinematics was not yet calculated!"));}
     // reverse calculation!
     for(int idx = links.size()-1;idx >= 0;--idx){
       links[idx]->calcCompInertia();
-      std::cout << "Comp Inertia for " << links[idx] -> name << " finished" << std::endl;
+      // std::cout << "Comp Inertia for " << links[idx] -> name << " finished" << std::endl;
     }
     calcComp = true;
   }
 
+  bool isConnected(size_t i, size_t j){ //checks if gvIndex i and gvIndex j share a path to root.
+    if((findLinkIdx(i) == -1) || (findLinkIdx(j) == -1)){return false;}
+    if(i > j){return isConnected(j,i);} //ensures j >= i;
+    if(i == j){return true;}
+    if(i <= 5){return true;} // base is connected to everything
+    Link* tempL = getLinkByGvIdx(j); //start with j and move up
+    while(tempL->parent != nullptr){
+      if(tempL->parent->worldT.gvIdx == i){return true;}
+      tempL = tempL->parent;
+    }
+    return false;
+  }
+
   Eigen::MatrixXd calculateMassMatrix(){
-    if(!calcKin ){throw(std::invalid_argument("This robot's kinematics was not yet calculated!"));}
-    if(!calcComp){throw(std::invalid_argument("This robot's composite inertia isn't populated!"));} 
+    if(!calcKin ){throw(std::invalid_argument("[calc M] This robot's kinematics was not yet calculated!"));}
+    if(!calcComp){throw(std::invalid_argument("[calc M] This robot's composite inertia isn't populated!"));} 
 
     Eigen::MatrixXd M;
     M.resize(gvDim,gvDim);
-
+    M.setZero();
+    // row i and column j
+    for(size_t i=0;i < gvDim;i++){
+      for(size_t j=0;j < gvDim;j++){
+        // we only want the upper triangle (j>=i)
+        if(j < i){M(i,j) = M(j,i);continue;} //symmetric matrix
+        if(isConnected(i,j)){M(i,j) = 1;} // checking connectivity
+      }
+    }
+    return M;
   }
 
-  }
-
+  // end-level "get" methodsF
   Trans* getTrans(const std::string &linkName){
     auto l = links[findLinkIdx(linkName)];
     if(!(l->calcKin)){throw(std::invalid_argument("Link Kinematics not yet calculated!"));}
@@ -861,20 +908,21 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   //   std::cout << "m: " << masses[i] << "  com: " << coms[i].e().transpose() << std::endl;
   //   std::cout << inertias[i] <<std::endl;
   // }
-  std::string target = "LH_HIP";
+  std::string target = "LH_SHANK";
 
   auto l = r.getLinkByName(target);
   size_t bodyIdx = anymal->getBodyIdx(target);
 
-  std::cout << "------COMPOSITE-INERTIA------"<<std::endl;
-  std::cout << "MINE: [" << l->name << "]" << std::endl;
-  std::cout << "m: " << l->compI.m << "  com: " << l->compI.com.originPos.transpose() << std::endl;
-  std::cout << l->compI.I <<std::endl;
+  // std::cout << "------COMPOSITE-INERTIA------"<<std::endl;
+  // std::cout << "MINE: [" << l->name << "]" << std::endl;
+  // std::cout << "m: " << l->compI.m << "  com: " << l->compI.com.originPos.transpose() << std::endl;
+  // std::cout << l->compI.I <<std::endl;
 
-  std::cout << "RAISIM: [" << bodyIdx <<"] " << names[bodyIdx] << std::endl;
-  std::cout << "m: " << compositeMasses[bodyIdx] << "  com: " << compositeComs[bodyIdx].e().transpose() << std::endl;
-  std::cout << compositeInertias[bodyIdx] <<std::endl;
+  // std::cout << "RAISIM: [" << bodyIdx <<"] " << names[bodyIdx] << std::endl;
+  // std::cout << "m: " << compositeMasses[bodyIdx] << "  com: " << compositeComs[bodyIdx].e().transpose() << std::endl;
+  // std::cout << compositeInertias[bodyIdx] <<std::endl;
 
+  std::cout << r.calculateMassMatrix() << std::endl;
 
   // marking positions
   server->getVisualObject("debug_X")->setPosition(l->compI.com.originPos);
