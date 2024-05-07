@@ -1,4 +1,4 @@
-//
+//e
 // Created by Jemin Hwangbo on 2022/04/08.
 //
 
@@ -264,6 +264,8 @@ public:
 
   void merge(Inertia* i2){
     // i2 must be in the same coordinate frame as i2
+    straighten();
+    i2->straighten();
     if(i2->isEmpty){return;}
     double m1 = m;
     double m2 = i2 -> m;
@@ -303,8 +305,6 @@ public:
     return {m,I,expT};
     // return Inertia(m,I,expT); // (equivalent)
   }
-
-
 };
 
 
@@ -325,9 +325,10 @@ public:
   // actuate wrt p by (gc[gcIdx]) (expressed in new frame(r -> R))
 
   // state variable (another transform)
-  Trans worldT;  // transform from world to i  (world --> frame attached to parent (used for jacobian))
-  Trans fullT;   // transform from world to i' (world --> frame attached to self)
+  Trans worldT;    // transform from world to i  (world --> frame attached to parent (used for jacobian))
+  Trans fullT;     // transform from world to i' (world --> frame attached to self)
   Inertia worldI;  // transform body inertia to world inertia
+  Inertia compI;   // composite inertia including own body and all supporting bodies (in world coordinates)
 
   // flags
   bool calcKin;  // pass 1: kinematics calculated (root->leaf)
@@ -347,6 +348,7 @@ public:
     fullT  = Trans();
 
     worldI = Inertia();
+    compI  = Inertia();
 
     parent = nullptr; //this will be modified within the Robot Class
   }
@@ -389,6 +391,20 @@ public:
     // although each links have to keep axis information (for J), the output for kinematics must be evaluated!
     resolveWorldI();
     calcKin = true;
+    // return;
+  }
+
+  void calcCompInertia(){
+    for(auto child:children){
+      if(!(child->calcComp) || !(child->calcKin)){throw(std::invalid_argument("The children's composite inertia is not calculated!"));}
+    }
+    std::cout << "[" << name << "] input check complete" << std::endl;
+    compI = worldI;
+    for(auto child:children){
+      compI.merge(&(child->compI));
+    }
+
+    calcComp = true;
     // return;
   }
 
@@ -452,6 +468,7 @@ public:
 
   // flags
   bool calcKin;
+  bool calcComp;
 
   Link* root;
 
@@ -461,6 +478,7 @@ public:
     dof = int(gvDimensions);
     root = nullptr;
     calcKin = false;
+    calcComp = false;
   }
 
   int findLinkIdx(Link* l){
@@ -480,8 +498,19 @@ public:
     return -1;
   }
 
+  int findLinkIdx(const int& gvIndex){ //find index with gv index
+    for(size_t i = 0;i<links.size();i++){
+      if(links[i]->bodyT.gvIdx == gvIndex){return int(i);}
+    }
+    return -1;
+  }
+
   Link* getLinkByName(const std::string& n){
     return links[findLinkIdx(n)];
+  }
+
+  Link* getLinkByGvIdx(const int& gvIndex){
+    return links[findLinkIdx(gvIndex)];
   }
 
   void addLink(Link* l,Link* p = nullptr){
@@ -494,6 +523,12 @@ public:
     else{root=l;}
 
     // std::cout << "added link " << l->name << std::endl;
+  }
+
+  void addLink(Link* l,const std::string& pName){
+    if(pName == ""){return addLink(l,nullptr);}
+    if(findLinkIdx(pName) < 0){throw std::invalid_argument("no such parent with name" + pName);}
+    return addLink(l,links[findLinkIdx(pName)]);
   }
 
   // important stuff
@@ -510,8 +545,10 @@ public:
 
   [[maybe_unused]] void resetKinematics(){
     calcKin = false;
+    calcComp = false;
     for(auto l:links){
       l -> calcKin = false;
+      l -> calcComp = false;
     }
   }
 
@@ -557,6 +594,26 @@ public:
     calculateJa(Ja,gc,linkName,wree);
 
     J << Jp,Ja;
+
+  void calculateCompositeInertia(){
+    if(!calcKin){throw(std::invalid_argument("This robot's kinematics was not yet calculated!"));}
+    // reverse calculation!
+    for(int idx = links.size()-1;idx >= 0;--idx){
+      links[idx]->calcCompInertia();
+      std::cout << "Comp Inertia for " << links[idx] -> name << " finished" << std::endl;
+    }
+    calcComp = true;
+  }
+
+  Eigen::MatrixXd calculateMassMatrix(){
+    if(!calcKin ){throw(std::invalid_argument("This robot's kinematics was not yet calculated!"));}
+    if(!calcComp){throw(std::invalid_argument("This robot's composite inertia isn't populated!"));} 
+
+    Eigen::MatrixXd M;
+    M.resize(gvDim,gvDim);
+
+  }
+
   }
 
   Trans* getTrans(const std::string &linkName){
@@ -672,7 +729,7 @@ void initRobotInertia(Robot& robot){
     // <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
     // <mass value="2.04"/>
     // <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="9.909e-05" izz="0.001765827"/>
-    tempI.setProfile(-0.063,7e-05,0.00046,0,0,0,2.04,0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
     robot.getLinkByName("BASE")->addInertia(tempI.expressedIn(tempT));
 
   //---attached to LH_HIP ---
@@ -681,7 +738,7 @@ void initRobotInertia(Robot& robot){
     // <origin rpy="0 0 0" xyz="0 0 0"/>
     // <mass value="0.001"/>
     // <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
-    tempI.setProfile(0,0,0,0,0,0,0.001,0.000001,0.0,0.0,0.000001,0.0,0.000001);
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001,0.0,0.0,0.000001,0.0,0.000001);
     robot.getLinkByName("LH_HIP")->addInertia(tempI);
 
     // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
@@ -690,7 +747,7 @@ void initRobotInertia(Robot& robot){
     // <origin rpy="0 0 0" xyz="-0.048 0.008 -0.003"/>
     // <mass value="0.74"/>
     // <inertia ixx="0.001393106" ixy="-8.4012e-05" ixz="-2.3378e-05" iyy="0.003798579" iyz="7.1319e-05" izz="0.003897509"/>
-    tempI.setProfile(-0.048,0.008,-0.003,0,0,0,0.74,0.001393106,-8.4012e-05,-2.3378e-05,0.003798579,7.1319e-05,0.003897509);
+    tempI.setProfile(-0.048,0.008,-0.003,  0,0,0,  0.74,0.001393106,-8.4012e-05,-2.3378e-05,0.003798579,7.1319e-05,0.003897509);
     robot.getLinkByName("LH_HIP")->addInertia(tempI.expressedIn(tempT));
 
     // <LH_hip_fixed_LH_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0599 0.08381 0.0"/>
@@ -700,7 +757,7 @@ void initRobotInertia(Robot& robot){
     // <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
     // <mass value="2.04"/>
     // <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="9.909e-05" izz="0.001765827"/>
-    tempI.setProfile(-0.063,7e-05,0.00046,0,0,0,2.04 ,0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013,4.527e-05,8.855e-05,0.001805509,9.909e-05,0.001765827);
     robot.getLinkByName("LH_HIP")->addInertia(tempI.expressedIn(tempT));
 
   //---attached to LH_THIGH ---
@@ -718,7 +775,7 @@ void initRobotInertia(Robot& robot){
     // <origin rpy="0 0 0" xyz="-0.0 0.018 -0.169"/>
     // <mass value="1.03"/>
     // <inertia ixx="0.018644469" ixy="-5.2e-08" ixz="-1.0157e-05" iyy="0.019312599" iyz="0.002520077" izz="0.002838361"/>
-    tempI.setProfile(0,0,0,0,0.018,-0.169,1.03,0.018644469,-5.2e-08,-1.0157e-05,0.019312599,0.002520077,0.002838361);
+    tempI.setProfile(0,0.018,-0.169, 0,0,0,  1.03,  0.018644469,-5.2e-08,-1.0157e-05,0.019312599,0.002520077,0.002838361);
     robot.getLinkByName("LH_THIGH")->addInertia(tempI.expressedIn(tempT));
 
     // <LH_thigh_fixed_LH_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0 0.1003 -0.285"/>
@@ -732,6 +789,27 @@ void initRobotInertia(Robot& robot){
     robot.getLinkByName("LH_THIGH")->addInertia(tempI.expressedIn(tempT));
 
   //---attached to LH_SHANK ---
+  // (LH_SHANK --"LH_SHANK_LH_shank_fixed"--> LH_shank_fixed --> "LH_shank_fixed_LH_FOOT" --> LH_FOOT)
+
+    // [LH_SHANK] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("LH_SHANK")->addInertia(tempI);
+
+    // <LH_shank_LH_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0.0, 0, 0,   0, 0, -1.57079632679);
+    // [LH_shank_fixed] <origin rpy="0 0 0" xyz="-0.03463 0.00688 0.00098"/>
+    // mass value="0.33742"/> <inertia ixx="0.00032748005" ixy="-2.142561e-05" ixz="-1.33942e-05" iyy="0.00110974122" iyz="0.00110974122" izz="0.00089388521"/>
+    tempI.setProfile(-0.03463,0.00688,0.00098,  0,0,0,  0.33742,  0.00032748005, -2.142561e-05, -1.33942e-05, 0.00110974122, 7.601e-08, 0.00089388521);
+    robot.getLinkByName("LH_SHANK")->addInertia(tempI.expressedIn(tempT));
+
+    // <LH_shank_fixed_LH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 0.01305 -0.33797"/>
+    tempTT.setProfile(-0.08795, 0.01305, -0.33797,   0, 0, 0);
+    tempT.attachTrans(tempTT);
+    // [LH_FOOT] <origin rpy="0 0 0" xyz="-0.00948 -0.00948 0.1468"/>
+    // mass value="0.25"/> <inertia ixx="0.00317174097" ixy="-2.63048e-06" ixz="-6.815581e-05" iyy="0.00317174092" iyz="0.00317174092" izz="8.319196e-05"/>
+    tempI.setProfile(-0.00948,-0.00948,0.1468,  0,0,0,  0.25,  0.00317174097, -2.63048e-06, -6.815581e-05, 0.00317174092, 6.815583e-05, 8.319196e-05);
+    robot.getLinkByName("LH_SHANK")->addInertia(tempI.expressedIn(tempT));
 
   //---attached to LH_FOOT --- (<- "ghost" link (nothing attached)) ---
   ////////////////////// LEFT-HIND LEG FINISH ////////////////////////
@@ -761,12 +839,51 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   /// TEMPLATE (do some testing here)
 
   auto r = initRobot();
+  r.calculateKinematics(gc);
+  r.calculateCompositeInertia();
 
   raisim::Vec<3> pos;
   anymal->getFramePosition("LH_shank_fixed_LH_FOOT", pos);
+  auto MTrue = anymal->getMassMatrix().e(); // required for other calculations
 
-  std::cout << "Foot POS: " << r.getPos(gc,"LH_FOOT").transpose() << std::endl;
-  std::cout << "True POS: " << pos.e().transpose() << std::endl ;
+  auto inertias = anymal->getInertia();
+  auto masses = anymal->getMass();
+  auto coms   = anymal->getBodyCOM_B();
+  auto names  = anymal->getBodyNames();
+  auto comWs  = anymal->getBodyCOM_W();
+
+  auto compositeInertias = anymal->getCompositeInertia();
+  auto compositeMasses   = anymal->getCompositeMass();
+  auto compositeComs     = anymal->getCompositeCOM();
+
+  // for (size_t i = 0; i < inertias.size() ;i++){
+  //   std::cout << "RAISIM: [" << i <<"] " << names[i] << std::endl;
+  //   std::cout << "m: " << masses[i] << "  com: " << coms[i].e().transpose() << std::endl;
+  //   std::cout << inertias[i] <<std::endl;
+  // }
+  std::string target = "LH_HIP";
+
+  auto l = r.getLinkByName(target);
+  size_t bodyIdx = anymal->getBodyIdx(target);
+
+  std::cout << "------COMPOSITE-INERTIA------"<<std::endl;
+  std::cout << "MINE: [" << l->name << "]" << std::endl;
+  std::cout << "m: " << l->compI.m << "  com: " << l->compI.com.originPos.transpose() << std::endl;
+  std::cout << l->compI.I <<std::endl;
+
+  std::cout << "RAISIM: [" << bodyIdx <<"] " << names[bodyIdx] << std::endl;
+  std::cout << "m: " << compositeMasses[bodyIdx] << "  com: " << compositeComs[bodyIdx].e().transpose() << std::endl;
+  std::cout << compositeInertias[bodyIdx] <<std::endl;
+
+
+  // marking positions
+  server->getVisualObject("debug_X")->setPosition(l->compI.com.originPos);
+  server->getVisualObject("debug_O")->setPosition(compositeComs[bodyIdx].e());
+  
+  std::cout << "------[SANITY-CHECK]------" << std::endl;
+  std::cout << "LH_FOOT POS (MINE)  : " << r.getPos(gc,"LH_FOOT").transpose() << std::endl;
+  std::cout << "LH_FOOT POS (RAISIM): " << pos.e().transpose() << std::endl ;
+
 
   std::cout << std::endl;
   /// TEMPLATE (add return condition here)
@@ -786,13 +903,20 @@ int main(int argc, char* argv[]) {
   world.addGround();
   world.setTimeStep(0.001);
 
+  // debug spheres
+  auto debugO = server.addVisualSphere("debug_O", 0.05);
+  auto debugX = server.addVisualSphere("debug_X", 0.05);
+  debugO->setColor(0,1,0,1);
+  debugX->setColor(1,0,0,1);
+
   // kinova configuration
   Eigen::VectorXd gc(anymal->getGeneralizedCoordinateDim()), gv(anymal->getDOF());
   gc << 0, 0, 0.54, 1.0, 0.0, 0.0, 0.0, 0.03, 0.4, -0.8, -0.03, 0.4, -0.8, 0.03, -0.4, 0.8, -0.03, -0.4, 0.8; /// Jemin: I'll randomize the gc, gv when grading
   gv << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8;
 
   utils::gcRandomize(gc);
-  utils::gvRandomize(gv);
+  gc[2] = gc[2] + 3;
+  utils::gvRandomize(gv,15);
   anymal->setState(gc, gv);
   server.launchServer();
 
