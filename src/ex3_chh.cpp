@@ -157,15 +157,6 @@ public:
   void setTyp (char newTyp = 'f'){typ=newTyp;}
   void setIdx (int gcIndex = -1,int gvIndex = -1){gcIdx = gcIndex;gvIdx = gvIndex;}
 
-  // axis given as an array
-  [[maybe_unused]] void setProfile(double* xyz,double* rpy,char newTyp = 'f',double* ax3d = nullptr,int gcIndex = -1,int gvIndex = -1){
-    setXyz (xyz[1] ,xyz[2] ,xyz[3] );
-    setRpy (rpy[1] ,rpy[2] ,rpy[3] );
-    setAxis(ax3d[1],ax3d[2],ax3d[3]);
-    setTyp(newTyp);
-    setIdx(gcIndex,gvIndex);
-  }
-
   // axis given as 3 numbers
   void setProfile(double x,double y,double z, double R,double P,double Y,char newTyp = 'f',double ax=0,double ay=0,double az=0,int gcIndex = -1,int gvIndex = -1){
     setXyz (x,y,z);
@@ -457,9 +448,9 @@ public:
   // return;
   }
 
-  Eigen::MatrixXd getS(){ //retrieve motion subspace matrix
+  [[nodiscard]] Eigen::MatrixXd getS() const{ //retrieve motion subspace matrix
     Eigen::MatrixXd S;
-    if(typ == 'b'){
+    if(typ == 'b'){ //base: full space
       S.resize(6,6);
       S.setIdentity();
       return S;
@@ -468,7 +459,8 @@ public:
     if(typ == 'a'){
       S.resize(6,1);
       if(worldT.typ == 'r'){
-        S << worldT.axis,0,0,0; //this is expressed in terms of worldT!
+        // sketchy line
+        S << 0,0,0,worldT.originRot*worldT.axis; //this is expressed in terms of worldT!
         return S;
       }
       // TODO: prismatic motion subspace
@@ -479,6 +471,25 @@ public:
       S.setZero();
       return S;
     }
+    throw(std::invalid_argument("Cannot determine motion subspace matrix"));
+  }
+
+  Eigen::MatrixXd getSpatialCompositeInertia(){
+    if (!calcKin){throw(std::invalid_argument("This link's kinematics is not calculated!"));}
+    if (!calcComp){throw(std::invalid_argument("This link's composite inertia is not calculated!"));}
+
+    Eigen::MatrixXd Mi;
+    Mi.resize(6,6);
+    Mi.setZero();
+    Eigen::Matrix3d rx = skew3d(compI.com.originPos-fullT.originPos);
+    Mi.block<3,3>(0,0) = compI.m * Eigen::Matrix3d::Identity();
+    Mi.block<3,3>(3,0) = compI.m*rx;
+    Mi.block<3,3>(0,3) = -compI.m*rx;
+    Mi.block<3,3>(3,3) = compI.I - compI.m*rx*rx;
+    // std::cout << "Mi for " << name << std::endl;
+    // std::cout << Mi << std::endl;
+
+    return Mi;
   }
 
 };
@@ -560,7 +571,6 @@ public:
   // all of the following functions assume a "parent-first" indexing of [links]
 
   void calculateKinematics(const Eigen::VectorXd& gc){
-    /// TODO move the link version here (root -> leaf)
     if(calcKin){return;}
     for(auto l:links){
       l->calcLinkKin(gc);
@@ -631,12 +641,12 @@ public:
     calcComp = true;
   }
 
-  bool isConnected(size_t i, size_t j){ //checks if gvIndex i and gvIndex j share a path to root.
-    if((findLinkIdx(i) == -1) || (findLinkIdx(j) == -1)){return false;}
-    if(i > j){return isConnected(j,i);} //ensures j >= i;
+  bool isConnected(int i, int j){ //checks if gvIndex i and gvIndex j share a path to root.
+    if((findLinkIdx(int(i)) == -1) || (findLinkIdx(int(j)) == -1)){return false;}
+    if(i > j){ std::tie(i, j) = std::make_tuple(j, i);} //ensures j >= i;
     if(i == j){return true;}
     if(i <= 5){return true;} // base is connected to everything
-    Link* tempL = getLinkByGvIdx(j); //start with j and move up
+    Link* tempL = getLinkByGvIdx(int(j)); //start with j and move up
     while(tempL->parent != nullptr){
       if(tempL->parent->worldT.gvIdx == i){return true;}
       tempL = tempL->parent;
@@ -649,14 +659,46 @@ public:
     if(!calcComp){throw(std::invalid_argument("[calc M] This robot's composite inertia isn't populated!"));} 
 
     Eigen::MatrixXd M;
-    M.resize(gvDim,gvDim);
+    M.resize(int(gvDim),int(gvDim));
     M.setZero();
     // row i and column j
-    for(size_t i=0;i < gvDim;i++){
-      for(size_t j=0;j < gvDim;j++){
-        // we only want the upper triangle (j>=i)
-        if(j < i){M(i,j) = M(j,i);continue;} //symmetric matrix
-        if(isConnected(i,j)){M(i,j) = 1;} // checking connectivity
+    Eigen::MatrixXd tempM; //temp variable for M_ij
+
+    Eigen::MatrixXd tempX; // the [I;-rx;0;I] matrix
+    tempX.resize(6,6);
+
+    Link* li;
+    Link* lj;
+
+    int i;
+    for(int j = int(gvDim);j >= 0;--j){ // from leaf to root
+      if(j>0 && j<6){continue;} //base cases redundant
+      if(findLinkIdx(j) < 0){continue;} //"not coded yet"
+
+      lj = getLinkByGvIdx(j);
+      li = lj;
+      while(li != nullptr){
+        i = li->worldT.gvIdx;
+        if(li->typ == 'b'){i = 0;}
+
+        tempX.setIdentity();
+        if(i != j){tempX.block<3,3>(0,3) = -skew3d(lj->fullT.originPos - li->fullT.originPos);}
+        tempM = lj->getS().transpose() * lj->getSpatialCompositeInertia() * tempX * li->getS();
+        if(i == 0){
+          if(j == 0){ // 6x6 case
+            M.block<6,6>(i,j) = tempM;
+          }
+          else{ // 6x1 case
+            M.block<6,1>(i,j) = tempM;
+            M.block<1,6>(j,i) = tempM.transpose();
+          }
+        }
+        else{
+          M.block<1,1>(i,j) = tempM;
+          if(i != j){M.block<1,1>(j,i) = tempM.transpose();}
+        }
+
+        li = li->parent;
       }
     }
     return M;
@@ -691,75 +733,232 @@ void initRobotTrans(Robot& robot) {
   // HARD-CODING: Link transformations.
 
   Trans tempT = Trans();
-
-  ////////////////////// LEFT-HIND LEG START  ////////////////////////
-  // note: though this can be further simplified, this is left as-is to mimic the workflow in [anymal.urdf].
+  //////////////////////      BASE     ////////////////////////
   // "BASE"
   auto base    = new Link("BASE",'b');
   robot.addLink(base);
-  // base
+  /////////////////////////////////////////////////////////////
+
+  ////////////////////// LF LEG START  ////////////////////////
+  auto LFHip = new Link("LF_HIP",'a');
+  // <base_LF_HAA> (fixed) <origin rpy="2.61799387799 0 0.0" xyz="0.2999 0.104 0.0"/>
+  tempT.setProfile(0.2999, 0.104, 0.0,   2.61799387799, 0, 0.0);
+  LFHip -> addTrans(tempT);
+
+  // <<LF_HAA>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="1 0 0/>" (gc[7])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  1, 0, 0, 7, 6);
+  LFHip -> addTrans(tempT);
+  robot.addLink(LFHip,base);
+
+  auto LFThigh = new Link("LF_THIGH",'a');
+  // <LF_HIP_LF_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 0.0" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   -2.61799387799, 0, 0.0);
+  LFThigh -> addTrans(tempT);
+
+  // <LF_hip_fixed_LF_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="0.0599 0.08381 0.0"/>
+  tempT.setProfile(0.0599, 0.08381, 0.0,   0, 0, 1.57079632679);
+  LFThigh -> addTrans(tempT);
+
+  // <<LF_HFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="1 0 0/>" (gc[8])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  1, 0, 0, 8, 7);
+  LFThigh -> addTrans(tempT);
+  robot.addLink(LFThigh,LFHip);
+
+  auto LFShank = new Link("LF_SHANK",'a');
+  // <LF_THIGH_LF_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, -1.57079632679);
+  LFShank -> addTrans(tempT);
+
+  // <LF_thigh_fixed_LF_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="0.0 0.1003 -0.285"/>
+  tempT.setProfile(0.0, 0.1003, -0.285,   0, 0, 1.57079632679);
+  LFShank -> addTrans(tempT);
+
+  // <<LF_KFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="1 0 0/>" (gc[9])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  1, 0, 0, 9, 8);
+  LFShank -> addTrans(tempT);
+  robot.addLink(LFShank,LFThigh);
+
+  auto LFFoot = new Link("LF_FOOT",'e');
+  // <LF_shank_LF_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, -1.57079632679);
+  LFFoot -> addTrans(tempT);
+
+  // <LF_shank_fixed_LF_FOOT> (fixed) <origin rpy="0 0 0" xyz="0.08795 0.01305 -0.33797"/>
+  tempT.setProfile(0.08795, 0.01305, -0.33797,   0, 0, 0);
+  LFFoot -> addTrans(tempT);
+  robot.addLink(LFFoot,LFShank);
+
+  ////////////////////// LF LEG FINISH ////////////////////////
+
+  ////////////////////// RF LEG START  ////////////////////////
+
+  auto RFHip = new Link("RF_HIP",'a');
+  // <base_RF_HAA> (fixed) <origin rpy="-2.61799387799 0 0.0" xyz="0.2999 -0.104 0.0"/>
+  tempT.setProfile(0.2999, -0.104, 0.0,   -2.61799387799, 0, 0.0);
+  RFHip -> addTrans(tempT);
+
+  // <<RF_HAA>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="1 0 0/>" (gc[10])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  1, 0, 0, 10, 9);
+  RFHip -> addTrans(tempT);
+  robot.addLink(RFHip,base);
+
+  auto RFThigh = new Link("RF_THIGH",'a');
+  // <RF_HIP_RF_hip_fixed> (fixed) <origin rpy="2.61799387799 0 0.0" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   2.61799387799, 0, 0.0);
+  RFThigh -> addTrans(tempT);
+
+  // <RF_hip_fixed_RF_HFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0.0599 -0.08381 0.0"/>
+  tempT.setProfile(0.0599, -0.08381, 0.0,   0, 0, -1.57079632679);
+  RFThigh -> addTrans(tempT);
+
+  // <<RF_HFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[11])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 11, 10);
+  RFThigh -> addTrans(tempT);
+  robot.addLink(RFThigh,RFHip);
+
+  auto RFShank = new Link("RF_SHANK",'a');
+  // <RF_THIGH_RF_thigh_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+  RFShank -> addTrans(tempT);
+
+  // <RF_thigh_fixed_RF_KFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0.0 -0.1003 -0.285"/>
+  tempT.setProfile(0.0, -0.1003, -0.285,   0, 0, -1.57079632679);
+  RFShank -> addTrans(tempT);
+
+  // <<RF_KFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[12])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 12, 11);
+  RFShank -> addTrans(tempT);
+  robot.addLink(RFShank,RFThigh);
+
+  auto RFFoot = new Link("RF_FOOT",'e');
+  // <RF_shank_RF_shank_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+  RFFoot -> addTrans(tempT);
+
+  // <RF_shank_fixed_RF_FOOT> (fixed) <origin rpy="0 0 0" xyz="0.08795 -0.01305 -0.33797"/>
+  tempT.setProfile(0.08795, -0.01305, -0.33797,   0, 0, 0);
+  RFFoot -> addTrans(tempT);
+  robot.addLink(RFFoot,RFShank);
+
+  ////////////////////// RF LEG FINISH ////////////////////////
+
+  ////////////////////// LH LEG START  ////////////////////////
+  // (base)
 
   // "HIP"
-  auto lhHip = new Link("LH_HIP",'a');
-  robot.addLink(lhHip,base);
+  auto LHHip = new Link("LH_HIP",'a');
+  robot.addLink(LHHip,base);
   // base
   // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
   // order: x y z   R P Y  (type = f) (ax ay az) (gcIdx gvIdx)
   tempT.setProfile(-0.2999,0.104,0.0,  -2.61799387799,0,-3.14159265359);
-  lhHip -> addTrans(tempT);
+  LHHip -> addTrans(tempT);
   // LH_HAA
 
   // <<LH_HAA>> (revolute) <axis xyz="-1 0 0"/> (gc[13])
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', -1,0.0,0.0, 13,12);
-  lhHip -> addTrans(tempT);
+  LHHip -> addTrans(tempT);
   // LH_HIP
 
   // "THIGH"
-  auto lhThi   = new Link("LH_THIGH",'a');
-  robot.addLink(lhThi,lhHip);
+  auto LHThi   = new Link("LH_THIGH",'a');
+  robot.addLink(LHThi,LHHip);
   // LH_HIP
   // <LH_HIP_LH_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  -2.61799387799,0.0,-3.14159265359);
-  lhThi -> addTrans(tempT);
+  LHThi -> addTrans(tempT);
   // LH_hip_fixed
   // <LH_hip_fixed_LH_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0599 0.08381 0.0"/>
   tempT.setProfile(-0.0599,0.08381,0.0,  0.0,0.0,1.57079632679);
-  lhThi -> addTrans(tempT);
+  LHThi -> addTrans(tempT);
   // LH_HFE
   // <<LH_HFE>> (revolute) <axis xyz="1 0 0"/> (gc[14])
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', 1,0.0,0.0, 14,13);
-  lhThi -> addTrans(tempT);
+  LHThi -> addTrans(tempT);
 
   // "SHANK"
-  auto lhSha = new Link("LH_SHANK",'a');
-  robot.addLink(lhSha,lhThi);
+  auto LHShank = new Link("LH_SHANK",'a');
+  robot.addLink(LHShank,LHThi);
   // LH_THIGH
   // <LH_THIGH_LH_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
-  lhSha -> addTrans(tempT);
+  LHShank -> addTrans(tempT);
   // LH_thigh_fixed
   // <LH_thigh_fixed_LH_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="-0.0 0.1003 -0.285"/>
   tempT.setProfile(0.0,0.1003,-0.285,  0.0,0.0,1.57079632679);
-  lhSha -> addTrans(tempT);
+  LHShank -> addTrans(tempT);
   // LH_KFE
   // <<LH_KFE>> (revolute) <axis xyz="1 0 0"/> (gc[15])
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,0.0, 'r', 1,0.0,0.0, 15,14);
-  lhSha -> addTrans(tempT);
+  LHShank -> addTrans(tempT);
 
   // "FOOT"
-  auto lhFoot = new Link("LH_FOOT",'e');
-  robot.addLink(lhFoot,lhSha);
+  auto LHFoot = new Link("LH_FOOT",'e');
+  robot.addLink(LHFoot,LHShank);
   // LH_SHANK
   // <LH_SHANK_LH_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
   tempT.setProfile(0.0,0.0,0.0,  0.0,0.0,-1.57079632679);
-  lhFoot -> addTrans(tempT);
+  LHFoot -> addTrans(tempT);
   // LH_shank_fixed
   // <LH_shank_fixed_LH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 0.01305 -0.33797"/>
   tempT.setProfile(-0.08795,0.01305,-0.33797,  0.0,0.0,0.0);
-  lhFoot -> addTrans(tempT);
-  // LH_FOOT <-- (objective joint origin)
+  LHFoot -> addTrans(tempT);
+  // LH_FOOT
 
-  ////////////////////// LEFT-HIND LEG FINISH ////////////////////////
+  ////////////////////// LH LEG FINISH ////////////////////////
+
+  ////////////////////// RH LEG START  ////////////////////////
+
+  auto RHHip = new Link("RH_HIP",'a');
+  // <base_RH_HAA> (fixed) <origin rpy="2.61799387799 0 -3.14159265359" xyz="-0.2999 -0.104 0.0"/>
+  tempT.setProfile(-0.2999, -0.104, 0.0,   2.61799387799, 0, -3.14159265359);
+  RHHip -> addTrans(tempT);
+
+  // <<RH_HAA>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[16])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 16, 15);
+  RHHip -> addTrans(tempT);
+  robot.addLink(RHHip,base);
+
+  auto RHThigh = new Link("RH_THIGH",'a');
+  // <RH_HIP_RH_hip_fixed> (fixed) <origin rpy="2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   2.61799387799, 0, -3.14159265359);
+  RHThigh -> addTrans(tempT);
+
+  // <RH_hip_fixed_RH_HFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="-0.0599 -0.08381 0.0"/>
+  tempT.setProfile(-0.0599, -0.08381, 0.0,   0, 0, -1.57079632679);
+  RHThigh -> addTrans(tempT);
+
+  // <<RH_HFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[17])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 17, 16);
+  RHThigh -> addTrans(tempT);
+  robot.addLink(RHThigh,RHHip);
+
+  auto RHShank = new Link("RH_SHANK",'a');
+  // <RH_THIGH_RH_thigh_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+  RHShank -> addTrans(tempT);
+
+  // <RH_thigh_fixed_RH_KFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="-0.0 -0.1003 -0.285"/>
+  tempT.setProfile(-0.0, -0.1003, -0.285,   0, 0, -1.57079632679);
+  RHShank -> addTrans(tempT);
+
+  // <<RH_KFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[18])
+  tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 18, 17);
+  RHShank -> addTrans(tempT);
+  robot.addLink(RHShank,RHThigh);
+
+  auto RHFoot = new Link("RH_FOOT",'e');
+  // <RH_shank_RH_shank_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+  tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+  RHFoot -> addTrans(tempT);
+
+  // <RH_shank_fixed_RH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 -0.01305 -0.33797"/>
+  tempT.setProfile(-0.08795, -0.01305, -0.33797,   0, 0, 0);
+  RHFoot -> addTrans(tempT);
+  robot.addLink(RHFoot,RHShank);
+
+  ////////////////////// RH LEG FINISH ////////////////////////
+
 }
 
 void initRobotInertia(Robot& robot){
@@ -767,7 +966,164 @@ void initRobotInertia(Robot& robot){
   auto tempTT = Trans(); // the "adding" trans
   auto tempI  = Inertia();
 
-  ////////////////////// LEFT-HIND LEG START  ////////////////////////
+  ////////////////////// LF LEG START   ////////////////////////
+    //---attached to BASE ---
+    // (base --"base_LF_HAA" --> LF_HAA) (base added later)
+    // <base_LF_HAA> (fixed) <origin rpy="2.61799387799 0 0.0" xyz="0.2999 0.104 0.0"/>
+    tempT.setProfile(0.2999, 0.104, 0.0,   2.61799387799, 0, 0.0);
+    // [LF_HAA] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("BASE")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to LF_HIP ---
+    // (LF_HIP --"LF_HIP_LF_hip_fixed"--> LF_hip_fixed --> "LF_hip_fixed_LF_HFE" --> LF_HFE)
+    // [LF_HIP] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("LF_HIP")->addInertia(tempI);
+
+    // <LF_HIP_LF_hip_fixed> (fixed) <origin rpy="-2.61799387799 0 0.0" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   -2.61799387799, 0, 0.0);
+    // [LF_hip_fixed] <origin rpy="0 0 0" xyz="0.048 0.008 -0.003"/>
+    // mass value="0.74"/> <inertia ixx="0.001393106" ixy="8.4012e-05" ixz="2.3378e-05" iyy="0.003798579" iyz="0.003798579" izz="0.003897509"/>
+    tempI.setProfile(0.048,0.008,-0.003,  0,0,0,  0.74,  0.001393106, 8.4012e-05, 2.3378e-05, 0.003798579, 7.1319e-05, 0.003897509);
+    robot.getLinkByName("LF_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    // <LF_hip_fixed_LF_HFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="0.0599 0.08381 0.0"/>
+    tempTT.setProfile(0.0599, 0.08381, 0.0,   0, 0, 1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [LF_HFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("LF_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to LF_THIGH ---
+    // (LF_THIGH --"LF_THIGH_LF_thigh_fixed"--> LF_thigh_fixed --> "LF_thigh_fixed_LF_KFE" --> LF_KFE)
+    // [LF_THIGH] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("LF_THIGH")->addInertia(tempI);
+
+    // <LF_THIGH_LF_thigh_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, -1.57079632679);
+    // [LF_thigh_fixed] <origin rpy="0 0 0" xyz="0.0 0.018 -0.169"/>
+    // mass value="1.03"/> <inertia ixx="0.018644469" ixy="5.2e-08" ixz="1.0157e-05" iyy="0.019312599" iyz="0.019312599" izz="0.002838361"/>
+    tempI.setProfile(0.0,0.018,-0.169,  0,0,0,  1.03,  0.018644469, 5.2e-08, 1.0157e-05, 0.019312599, 0.002520077, 0.002838361);
+    robot.getLinkByName("LF_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    // <LF_thigh_fixed_LF_KFE> (fixed) <origin rpy="0 0 1.57079632679" xyz="0.0 0.1003 -0.285"/>
+    tempTT.setProfile(0.0, 0.1003, -0.285,   0, 0, 1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [LF_KFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("LF_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to LF_SHANK ---
+    // (LF_SHANK --"LF_SHANK_LF_shank_fixed"--> LF_shank_fixed --> "LF_shank_fixed_LF_FOOT" --> LF_FOOT)
+
+    // [LF_SHANK] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("LF_SHANK")->addInertia(tempI);
+
+    // <LF_shank_LF_shank_fixed> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, -1.57079632679);
+    // [LF_shank_fixed] <origin rpy="0 0 0" xyz="0.03463 0.00688 0.00098"/>
+    // mass value="0.33742"/> <inertia ixx="0.00032748005" ixy="2.142561e-05" ixz="1.33942e-05" iyy="0.00110974122" iyz="0.00110974122" izz="0.00089388521"/>
+    tempI.setProfile(0.03463,0.00688,0.00098,  0,0,0,  0.33742,  0.00032748005, 2.142561e-05, 1.33942e-05, 0.00110974122, 7.601e-08, 0.00089388521);
+    robot.getLinkByName("LF_SHANK")->addInertia(tempI.expressedIn(tempT));
+
+    // <LF_shank_fixed_LF_FOOT> (fixed) <origin rpy="0 0 0" xyz="0.08795 0.01305 -0.33797"/>
+    tempTT.setProfile(0.08795, 0.01305, -0.33797,   0, 0, 0);
+    tempT.attachTrans(tempTT);
+    // [LF_FOOT] <origin rpy="0 0 0" xyz="0.00948 -0.00948 0.1468"/>
+    // mass value="0.25"/> <inertia ixx="0.00317174097" ixy="2.63048e-06" ixz="6.815581e-05" iyy="0.00317174092" iyz="0.00317174092" izz="8.319196e-05"/>
+    tempI.setProfile(0.00948,-0.00948,0.1468,  0,0,0,  0.25,  0.00317174097, 2.63048e-06, 6.815581e-05, 0.00317174092, 6.815583e-05, 8.319196e-05);
+    robot.getLinkByName("LF_SHANK")->addInertia(tempI.expressedIn(tempT));
+  ////////////////////// LF LEG FINISH  ////////////////////////
+
+  ////////////////////// RF LEG START   ////////////////////////
+
+    //---attached to BASE ---
+    // (base --"base_RF_HAA" --> RF_HAA) (base added later)
+    // <base_RF_HAA> (fixed) <origin rpy="-2.61799387799 0 0.0" xyz="0.2999 -0.104 0.0"/>
+    tempT.setProfile(0.2999, -0.104, 0.0,   -2.61799387799, 0, 0.0);
+    // [RF_HAA] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("BASE")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RF_HIP ---
+    // (RF_HIP --"RF_HIP_RF_hip_fixed"--> RF_hip_fixed --> "RF_hip_fixed_RF_HFE" --> RF_HFE)
+    // [RF_HIP] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RF_HIP")->addInertia(tempI);
+
+    // <RF_HIP_RF_hip_fixed> (fixed) <origin rpy="2.61799387799 0 0.0" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   2.61799387799, 0, 0.0);
+    // [RF_hip_fixed] <origin rpy="0 0 0" xyz="0.048 -0.008 -0.003"/>
+    // mass value="0.74"/> <inertia ixx="0.001393106" ixy="-8.4012e-05" ixz="2.3378e-05" iyy="0.003798579" iyz="0.003798579" izz="0.003897509"/>
+    tempI.setProfile(0.048,-0.008,-0.003,  0,0,0,  0.74,  0.001393106, -8.4012e-05, 2.3378e-05, 0.003798579, -7.1319e-05, 0.003897509);
+    robot.getLinkByName("RF_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    // <RF_hip_fixed_RF_HFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0.0599 -0.08381 0.0"/>
+    tempTT.setProfile(0.0599, -0.08381, 0.0,   0, 0, -1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [RF_HFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("RF_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RF_THIGH ---
+    // (RF_THIGH --"RF_THIGH_RF_thigh_fixed"--> RF_thigh_fixed --> "RF_thigh_fixed_RF_KFE" --> RF_KFE)
+    // [RF_THIGH] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RF_THIGH")->addInertia(tempI);
+
+    // <RF_THIGH_RF_thigh_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+    // [RF_thigh_fixed] <origin rpy="0 0 0" xyz="0.0 -0.018 -0.169"/>
+    // mass value="1.03"/> <inertia ixx="0.018644469" ixy="-5.2e-08" ixz="1.0157e-05" iyy="0.019312599" iyz="0.019312599" izz="0.002838361"/>
+    tempI.setProfile(0.0,-0.018,-0.169,  0,0,0,  1.03,  0.018644469, -5.2e-08, 1.0157e-05, 0.019312599, -0.002520077, 0.002838361);
+    robot.getLinkByName("RF_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    // <RF_thigh_fixed_RF_KFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="0.0 -0.1003 -0.285"/>
+    tempTT.setProfile(0.0, -0.1003, -0.285,   0, 0, -1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [RF_KFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("RF_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RF_SHANK ---
+    // (RF_SHANK --"RF_SHANK_RF_shank_fixed"--> RF_shank_fixed --> "RF_shank_fixed_RF_FOOT" --> RF_FOOT)
+
+    // [RF_SHANK] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RF_SHANK")->addInertia(tempI);
+
+    // <RF_shank_RF_shank_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+    // [RF_shank_fixed] <origin rpy="0 0 0" xyz="0.03463 -0.00688 0.00098"/>
+    // mass value="0.33742"/> <inertia ixx="0.00032748005" ixy="-2.142561e-05" ixz="1.33942e-05" iyy="0.00110974122" iyz="0.00110974122" izz="0.00089388521"/>
+    tempI.setProfile(0.03463,-0.00688,0.00098,  0,0,0,  0.33742,  0.00032748005, -2.142561e-05, 1.33942e-05, 0.00110974122, -7.601e-08, 0.00089388521);
+    robot.getLinkByName("RF_SHANK")->addInertia(tempI.expressedIn(tempT));
+
+    // <RF_shank_fixed_RF_FOOT> (fixed) <origin rpy="0 0 0" xyz="0.08795 -0.01305 -0.33797"/>
+    tempTT.setProfile(0.08795, -0.01305, -0.33797,   0, 0, 0);
+    tempT.attachTrans(tempTT);
+    // [RF_FOOT] <origin rpy="0 0 0" xyz="0.00948 0.00948 0.1468"/>
+    // mass value="0.25"/> <inertia ixx="0.00317174097" ixy="-2.63048e-06" ixz="6.815581e-05" iyy="0.00317174092" iyz="0.00317174092" izz="8.319196e-05"/>
+    tempI.setProfile(0.00948,0.00948,0.1468,  0,0,0,  0.25,  0.00317174097, -2.63048e-06, 6.815581e-05, 0.00317174092, -6.815583e-05, 8.319196e-05);
+    robot.getLinkByName("RF_SHANK")->addInertia(tempI.expressedIn(tempT));
+  ////////////////////// RF LEG FINISH  ////////////////////////
+
+  ////////////////////// LH LEG START  ////////////////////////
   //---attached to BASE ---
   // (base --"base_LH_HAA" --> LH_HAA) (base added later)
     // <base_LH_HAA> (fixed) <origin rpy="-2.61799387799 0 -3.14159265359" xyz="-0.2999 0.104 0.0"/>
@@ -859,8 +1215,85 @@ void initRobotInertia(Robot& robot){
     robot.getLinkByName("LH_SHANK")->addInertia(tempI.expressedIn(tempT));
 
   //---attached to LH_FOOT --- (<- "ghost" link (nothing attached)) ---
-  ////////////////////// LEFT-HIND LEG FINISH ////////////////////////
+  ////////////////////// LH LEG FINISH ////////////////////////
 
+  ////////////////////// RH LEG START   ////////////////////////
+    //---attached to BASE ---
+    // (base --"base_RH_HAA" --> RH_HAA) (base added later)
+    // <base_RH_HAA> (fixed) <origin rpy="2.61799387799 0 -3.14159265359" xyz="-0.2999 -0.104 0.0"/>
+    tempT.setProfile(-0.2999, -0.104, 0.0,   2.61799387799, 0, -3.14159265359);
+    // [RH_HAA] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("BASE")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RH_HIP ---
+    // (RH_HIP --"RH_HIP_RH_hip_fixed"--> RH_hip_fixed --> "RH_hip_fixed_RH_HFE" --> RH_HFE)
+    // [RH_HIP] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RH_HIP")->addInertia(tempI);
+
+    // <RH_HIP_RH_hip_fixed> (fixed) <origin rpy="2.61799387799 0 -3.14159265359" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   2.61799387799, 0, -3.14159265359);
+    // [RH_hip_fixed] <origin rpy="0 0 0" xyz="-0.048 -0.008 -0.003"/>
+    // mass value="0.74"/> <inertia ixx="0.001393106" ixy="8.4012e-05" ixz="-2.3378e-05" iyy="0.003798579" iyz="0.003798579" izz="0.003897509"/>
+    tempI.setProfile(-0.048,-0.008,-0.003,  0,0,0,  0.74,  0.001393106, 8.4012e-05, -2.3378e-05, 0.003798579, -7.1319e-05, 0.003897509);
+    robot.getLinkByName("RH_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    // <RH_hip_fixed_RH_HFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="-0.0599 -0.08381 0.0"/>
+    tempTT.setProfile(-0.0599, -0.08381, 0.0,   0, 0, -1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [RH_HFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("RH_HIP")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RH_THIGH ---
+    // (RH_THIGH --"RH_THIGH_RH_thigh_fixed"--> RH_thigh_fixed --> "RH_thigh_fixed_RH_KFE" --> RH_KFE)
+    // [RH_THIGH] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RH_THIGH")->addInertia(tempI);
+
+    // <RH_THIGH_RH_thigh_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+    // [RH_thigh_fixed] <origin rpy="0 0 0" xyz="-0.0 -0.018 -0.169"/>
+    // mass value="1.03"/> <inertia ixx="0.018644469" ixy="5.2e-08" ixz="-1.0157e-05" iyy="0.019312599" iyz="0.019312599" izz="0.002838361"/>
+    tempI.setProfile(-0.0,-0.018,-0.169,  0,0,0,  1.03,  0.018644469, 5.2e-08, -1.0157e-05, 0.019312599, -0.002520077, 0.002838361);
+    robot.getLinkByName("RH_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    // <RH_thigh_fixed_RH_KFE> (fixed) <origin rpy="0 0 -1.57079632679" xyz="-0.0 -0.1003 -0.285"/>
+    tempTT.setProfile(-0.0, -0.1003, -0.285,   0, 0, -1.57079632679);
+    tempT.attachTrans(tempTT);
+    // [RH_KFE] <origin rpy="0 0 0" xyz="-0.063 7e-05 0.00046"/>
+    // mass value="2.04"/> <inertia ixx="0.001053013" ixy="4.527e-05" ixz="8.855e-05" iyy="0.001805509" iyz="0.001805509" izz="0.001765827"/>
+    tempI.setProfile(-0.063,7e-05,0.00046,  0,0,0,  2.04,  0.001053013, 4.527e-05, 8.855e-05, 0.001805509, 9.909e-05, 0.001765827);
+    robot.getLinkByName("RH_THIGH")->addInertia(tempI.expressedIn(tempT));
+
+    //---attached to RH_SHANK ---
+    // (RH_SHANK --"RH_SHANK_RH_shank_fixed"--> RH_shank_fixed --> "RH_shank_fixed_RH_FOOT" --> RH_FOOT)
+
+    // [RH_SHANK] <origin rpy="0 0 0" xyz="0 0 0"/>
+    // mass value="0.001"/> <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.000001" izz="0.000001"/>
+    tempI.setProfile(0,0,0,  0,0,0,  0.001,  0.000001, 0.0, 0.0, 0.000001, 0.0, 0.000001);
+    robot.getLinkByName("RH_SHANK")->addInertia(tempI);
+
+    // <RH_shank_RH_shank_fixed> (fixed) <origin rpy="0 0 1.57079632679" xyz="0 0 0"/>
+    tempT.setProfile(0, 0, 0,   0, 0, 1.57079632679);
+    // [RH_shank_fixed] <origin rpy="0 0 0" xyz="-0.03463 -0.00688 0.00098"/>
+    // mass value="0.33742"/> <inertia ixx="0.00032748005" ixy="2.142561e-05" ixz="-1.33942e-05" iyy="0.00110974122" iyz="0.00110974122" izz="0.00089388521"/>
+    tempI.setProfile(-0.03463,-0.00688,0.00098,  0,0,0,  0.33742,  0.00032748005, 2.142561e-05, -1.33942e-05, 0.00110974122, -7.601e-08, 0.00089388521);
+    robot.getLinkByName("RH_SHANK")->addInertia(tempI.expressedIn(tempT));
+
+    // <RH_shank_fixed_RH_FOOT> (fixed) <origin rpy="0 0 0" xyz="-0.08795 -0.01305 -0.33797"/>
+    tempTT.setProfile(-0.08795, -0.01305, -0.33797,   0, 0, 0);
+    tempT.attachTrans(tempTT);
+    // [RH_FOOT] <origin rpy="0 0 0" xyz="-0.00948 0.00948 0.1468"/>
+    // mass value="0.25"/> <inertia ixx="0.00317174097" ixy="2.63048e-06" ixz="-6.815581e-05" iyy="0.00317174092" iyz="0.00317174092" izz="8.319196e-05"/>
+    tempI.setProfile(-0.00948,0.00948,0.1468,  0,0,0,  0.25,  0.00317174097, 2.63048e-06, -6.815581e-05, 0.00317174092, -6.815583e-05, 8.319196e-05);
+    robot.getLinkByName("RH_SHANK")->addInertia(tempI.expressedIn(tempT));
+  ////////////////////// RH LEG FINISH  ////////////////////////
 }
 
 Robot initRobot(){
@@ -889,9 +1322,8 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   r.calculateKinematics(gc);
   r.calculateCompositeInertia();
 
-  raisim::Vec<3> pos;
-  anymal->getFramePosition("LH_shank_fixed_LH_FOOT", pos);
-  auto MTrue = anymal->getMassMatrix().e(); // required for other calculations
+  Eigen::MatrixXd MCalc = r.calculateMassMatrix();
+  Eigen::MatrixXd MTrue = anymal->getMassMatrix().e(); // required for other calculations
 
   auto inertias = anymal->getInertia();
   auto masses = anymal->getMass();
@@ -908,30 +1340,55 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   //   std::cout << "m: " << masses[i] << "  com: " << coms[i].e().transpose() << std::endl;
   //   std::cout << inertias[i] <<std::endl;
   // }
-  std::string target = "LH_SHANK";
+  std::string target = "RH_HIP";
 
   auto l = r.getLinkByName(target);
   size_t bodyIdx = anymal->getBodyIdx(target);
 
-  // std::cout << "------COMPOSITE-INERTIA------"<<std::endl;
-  // std::cout << "MINE: [" << l->name << "]" << std::endl;
-  // std::cout << "m: " << l->compI.m << "  com: " << l->compI.com.originPos.transpose() << std::endl;
-  // std::cout << l->compI.I <<std::endl;
+  std::cout << "------COMPOSITE-INERTIA------"<<std::endl;
+  std::cout << "MINE: [" << l->name << "]" << std::endl;
+  std::cout << "m: " << l->compI.m << "  com: " << l->compI.com.originPos.transpose() << std::endl;
+  std::cout << l->compI.I <<std::endl;
 
-  // std::cout << "RAISIM: [" << bodyIdx <<"] " << names[bodyIdx] << std::endl;
-  // std::cout << "m: " << compositeMasses[bodyIdx] << "  com: " << compositeComs[bodyIdx].e().transpose() << std::endl;
-  // std::cout << compositeInertias[bodyIdx] <<std::endl;
+  std::cout << "RAISIM: [" << bodyIdx <<"] " << names[bodyIdx] << std::endl;
+  std::cout << "m: " << compositeMasses[bodyIdx] << "  com: " << compositeComs[bodyIdx].e().transpose() << std::endl;
+  std::cout << compositeInertias[bodyIdx] <<std::endl;
 
-  std::cout << r.calculateMassMatrix() << std::endl;
+  // std::cout << "------MASS-SUBMATRIX (for LH leg) ------" << std::endl;
+  // std::cout << "MINE" << std::endl;
+  // std::cout << MCalc.block<3,3>(12,12) << std::endl;
+  //
+  // std::cout << "RAISIM" << std::endl;
+  // std::cout << MTrue.block<3,3>(12,12) << std::endl;
+  // std::cout << "Difference : " << (MCalc - MTrue).block<3,3>(12,12).norm() << std::endl;
+
 
   // marking positions
-  server->getVisualObject("debug_X")->setPosition(l->compI.com.originPos);
-  server->getVisualObject("debug_O")->setPosition(compositeComs[bodyIdx].e());
+  server->getVisualObject("debug_mine")->setPosition(l->compI.com.originPos);
+  server->getVisualObject("debug_raisim")->setPosition(compositeComs[bodyIdx].e());
   
   std::cout << "------[SANITY-CHECK]------" << std::endl;
-  std::cout << "LH_FOOT POS (MINE)  : " << r.getPos(gc,"LH_FOOT").transpose() << std::endl;
-  std::cout << "LH_FOOT POS (RAISIM): " << pos.e().transpose() << std::endl ;
+  raisim::Vec<3> posLF, posRF, posLH, posRH;
+  anymal->getFramePosition("LF_shank_fixed_LF_FOOT", posLF);
+  anymal->getFramePosition("RF_shank_fixed_RF_FOOT", posRF);
+  anymal->getFramePosition("LH_shank_fixed_LH_FOOT", posLH);
+  anymal->getFramePosition("RH_shank_fixed_RH_FOOT", posRH);
 
+  std::cout << "FOOT POS (MINE)  : " << std::endl;
+  std::cout << "   LF: " << r.getPos(gc,"LF_FOOT").transpose();
+  std::cout << "   RF: " << r.getPos(gc,"RF_FOOT").transpose();
+  std::cout << std::endl;
+  std::cout << "   LH: " << r.getPos(gc,"LH_FOOT").transpose();
+  std::cout << "   RH: " << r.getPos(gc,"RH_FOOT").transpose();
+  std::cout << std::endl;
+
+  std::cout << "FOOT POS (RAISIM): " << std::endl;
+  std::cout << "   LF: " << posLF.e().transpose();
+  std::cout << "   RF: " << posRF.e().transpose();
+  std::cout << std::endl;
+  std::cout << "   LH: " << posLH.e().transpose();
+  std::cout << "   RH: " << posRH.e().transpose();
+  std::cout << std::endl ;
 
   std::cout << std::endl;
   /// TEMPLATE (add return condition here)
@@ -952,10 +1409,10 @@ int main(int argc, char* argv[]) {
   world.setTimeStep(0.001);
 
   // debug spheres
-  auto debugO = server.addVisualSphere("debug_O", 0.05);
-  auto debugX = server.addVisualSphere("debug_X", 0.05);
-  debugO->setColor(0,1,0,1);
-  debugX->setColor(1,0,0,1);
+  auto debugRAISIM  = server.addVisualSphere("debug_raisim", 0.05);
+  auto debugMINE    = server.addVisualSphere("debug_mine", 0.06); //when coincident, the sphere looks green
+  debugRAISIM ->setColor(1,0,0,1);
+  debugMINE   ->setColor(0,1,0,1);
 
   // kinova configuration
   Eigen::VectorXd gc(anymal->getGeneralizedCoordinateDim()), gv(anymal->getDOF());
