@@ -463,8 +463,8 @@ class Robot{
 public:
   std::vector<Link*> links; //follows "parent-first" convention
   size_t gvDim; // (==dof)
-  [[maybe_unused]] size_t dof;
-  [[maybe_unused]] size_t gcDim;
+  size_t dof;
+  size_t gcDim;
 
   // state variables
   Eigen::MatrixXd M; // mass matrix
