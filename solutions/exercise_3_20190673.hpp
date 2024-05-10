@@ -263,7 +263,6 @@ public:
   }
 };
 
-
 class Link{
 public:
   std::string name; //name
@@ -659,8 +658,9 @@ public:
             M.block<6,6>(i,j) = tempM;
           }
           else{ // 6x1 case
-            M.block<6,1>(i,j) = tempM;
-            M.block<1,6>(j,i) = tempM.transpose();
+            std::cout << tempM << std::endl;
+            M.block<6,1>(i,j) = tempM.transpose(); // !! careful !! (this line caused errors in debug mode)
+            M.block<1,6>(j,i) = tempM;
           }
         }
         else{
@@ -1341,6 +1341,7 @@ Robot* initRobot(){
 
 inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
   auto r = initRobot();
+  r->resetKinematics();
   r->calculateKinematics(gc);
   r->calculateCompositeInertia();
   r->calculateMassMatrix();

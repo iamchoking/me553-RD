@@ -17,16 +17,24 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   /// TEMPLATE (do some testing here)
 
   auto r = initRobot();
+  // std::cout << "STEP[" << t << "] ROBOT INIT" << std::endl;
+
   r->calculateKinematics(gc);
+  // std::cout << "STEP[" << t << "] ROBOT KIN" << std::endl;
+
   r->calculateCompositeInertia();
+  // std::cout << "STEP[" << t << "] ROBOT COMPI" << std::endl;
 
   // Eigen::MatrixXd MCalc = r->calculateMassMatrix();
   Eigen::MatrixXd MCalc = getMassMatrix(gc);
+  // std::cout << "STEP[" << t << "] ROBOT MASSMAT" << std::endl;
+
   Eigen::MatrixXd MTrue = anymal->getMassMatrix().e(); // required for other calculations
 
   auto inertias = anymal->getInertia();
   auto masses = anymal->getMass();
   auto coms   = anymal->getBodyCOM_B();
+  
   auto names  = anymal->getBodyNames();
   auto comWs  = anymal->getBodyCOM_W();
 
@@ -58,7 +66,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   // std::cout << compositeInertias[bodyIdx] <<std::endl;
   //
 
-  std::cout << "------MASS-SUBMATRIX ------" << std::endl;
+  std::cout << "------MASS-(SUB)MATRIX ------" << std::endl;
   std::cout << "MINE" << std::endl;
   // std::cout << MCalc.block<12,12>(6,6) << std::endl;
   std::cout << MCalc << std::endl;
@@ -126,6 +134,7 @@ int main(int argc, char* argv[]) {
   utils::gvRandomize(gv,15);
   anymal->setState(gc, gv);
   server.launchServer();
+  server.focusOn(anymal);
 
   /// if you are using an old version of Raisim, you need this line
   world.integrate1();
