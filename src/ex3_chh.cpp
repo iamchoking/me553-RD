@@ -79,12 +79,22 @@ bool analyzeStep(const Eigen::VectorXd& gc, size_t t, raisim::RaisimServer* serv
   auto err = (MCalc - MTrue).norm();
   std::cout << "Error : " << err << std::endl;
 
-  std::cout << "------[SANITY-CHECK]------" << std::endl;
-  raisim::Vec<3> posLF, posRF, posLH, posRH;
+ std::cout << "------[SANITY-CHECK]------" << std::endl;
+  raisim::Vec<3> posBase, posLF, posRF, posLH, posRH;
+
+  posBase = anymal->getBasePosition();
   anymal->getFramePosition("LF_shank_fixed_LF_FOOT", posLF);
   anymal->getFramePosition("RF_shank_fixed_RF_FOOT", posRF);
   anymal->getFramePosition("LH_shank_fixed_LH_FOOT", posLH);
   anymal->getFramePosition("RH_shank_fixed_RH_FOOT", posRH);
+
+  std::cout << "BASE POS (MINE)  : " << r->getPos(gc,"base").transpose() << std::endl;
+  std::cout << "BASE POS (RAISIM): " << posBase.e().transpose() << std::endl;
+  std::cout<<std::endl;
+
+  std::cout << "BASE COM (MINE)    : " << r->getLinkByName("base")->compI.com.originPos.transpose() << std::endl;
+  std::cout << "BASE COM (RAISIM)  : " << compositeComs[0].e().transpose() << std::endl;
+  std::cout<<std::endl;
 
   std::cout << "FOOT POS (MINE)  : " << std::endl;
   std::cout << "   LF: " << r->getPos(gc,"LF_FOOT").transpose();

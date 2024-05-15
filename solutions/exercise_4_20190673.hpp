@@ -1,5 +1,9 @@
 #pragma once
 
+
+//PASTE FROM HERE
+#include <Eigen/Core>
+
 /// do not change the name of the method
 inline Eigen::VectorXd getNonlinearities (const Eigen::VectorXd& gc, const Eigen::VectorXd& gv) {
 
@@ -9,3 +13,4 @@ inline Eigen::VectorXd getNonlinearities (const Eigen::VectorXd& gc, const Eigen
   return Eigen::VectorXd::Ones(18);
 }
 
+// TO HERE

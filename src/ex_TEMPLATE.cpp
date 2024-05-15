@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
   for (size_t i = 0; i<2000; i++){
     RS_TIMED_LOOP(world.getTimeStep()*2e6);
     if(i%10 == 0){
-      correct = correct && analyzeStep(gc,i,&server,anymal);
+      correct = analyzeStep(gc,i,&server,anymal) && correct;
     }
     server.integrateWorldThreadSafe();
     anymal->getState(gc, gv);
