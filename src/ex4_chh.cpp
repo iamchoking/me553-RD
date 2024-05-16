@@ -80,6 +80,19 @@ Eigen::Matrix3d hcInertia(double ixx, double ixy, double ixz, double iyy, double
   return I;
 }
 
+Eigen::Vector4d rotToQuat(Eigen::Matrix3d rot){ // this is used only for visualization and nowhere else!
+  Eigen::Quaterniond q(rot);
+  return q.coeffs();
+}
+
+Eigen::Vector4d quatPointing(Eigen::Vector3d dir){ // this is used only for visualization and nowhere else!
+  //quaternion that points the z vector to wherever you want
+  dir.normalize();
+  Eigen::Vector3d z(0,0,1);
+  Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(z,dir);
+  return q.coeffs();
+}
+
 class Trans {
 public:
   char typ; //'f' fixed, 'r' revolute, 'b' (floating) base, (to be added: 'p' prismatic)
@@ -501,7 +514,7 @@ public:
       S.resize(6,1);
       if(worldT.typ == 'r'){
         // sketchy line
-        S << 0,0,0,worldT.originRot*worldT.axis; //this is expressed in terms of worldT!
+        S << 0,0,0,worldT.originRot*worldT.axis; //worldT.axis is expressed in terms of worldT!
         return S;
       }
       // TODO: prismatic motion subspace
@@ -1564,75 +1577,97 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, size_t t,
 
   std::cout << "------[SANITY-CHECK]------" << std::endl;
 
-  raisim::Vec<3> rsBase, rsLF, rsRF, rsLH, rsRH, rsDebug;
-  rsBase = anymal->getBasePosition();
-  anymal->getFramePosition("LF_shank_fixed_LF_FOOT", rsLF);
-  anymal->getFramePosition("RF_shank_fixed_RF_FOOT", rsRF);
-  anymal->getFramePosition("LH_shank_fixed_LH_FOOT", rsLH);
-  anymal->getFramePosition("RH_shank_fixed_RH_FOOT", rsRH);
+    raisim::Vec<3> rsBase, rsLF, rsRF, rsLH, rsRH, rsDebug;
+    rsBase = anymal->getBasePosition();
+    anymal->getFramePosition("LF_shank_fixed_LF_FOOT", rsLF);
+    anymal->getFramePosition("RF_shank_fixed_RF_FOOT", rsRF);
+    anymal->getFramePosition("LH_shank_fixed_LH_FOOT", rsLH);
+    anymal->getFramePosition("RH_shank_fixed_RH_FOOT", rsRH);
 
-  raisim::Vec<3> rsvBase, rsvLF, rsvRF, rsvLH, rsvRH, rsvDebug;
-  rsvBase = gv.segment(0,3);
-  anymal->getFrameVelocity("LF_shank_fixed_LF_FOOT", rsvLF);
-  anymal->getFrameVelocity("RF_shank_fixed_RF_FOOT", rsvRF);
-  anymal->getFrameVelocity("LH_shank_fixed_LH_FOOT", rsvLH);
-  anymal->getFrameVelocity("RH_shank_fixed_RH_FOOT", rsvRH);
+    raisim::Vec<3> rsvBase, rsvLF, rsvRF, rsvLH, rsvRH, rsvDebug;
+    rsvBase = gv.segment(0,3);
+    anymal->getFrameVelocity("LF_shank_fixed_LF_FOOT", rsvLF);
+    anymal->getFrameVelocity("RF_shank_fixed_RF_FOOT", rsvRF);
+    anymal->getFrameVelocity("LH_shank_fixed_LH_FOOT", rsvLH);
+    anymal->getFrameVelocity("RH_shank_fixed_RH_FOOT", rsvRH);
 
-  Eigen::Vector3d myBase, myLF, myRF, myLH, myRH, myDebug;
-  myBase = r->getPos("base");
-  myLF   = r->getPos("LF_FOOT");
-  myRF   = r->getPos("RF_FOOT");
-  myLH   = r->getPos("LH_FOOT");
-  myRH   = r->getPos("RH_FOOT");
-
-
-  Eigen::Vector3d myvBase, myvLF, myvRF, myvLH, myvRH, myvDebug;
-  myvBase = r->getVel("base");
-  myvLF   = r->getVel("LF_FOOT");
-  myvRF   = r->getVel("RF_FOOT");
-  myvLH   = r->getVel("LH_FOOT");
-  myvRH   = r->getVel("RH_FOOT");
-
-  // anymal->getFrameVelocity("base_LF_HAA", rsvDebug);
-  // myvDebug = r->getLinkByName("LF_HIP")->fullV;
-
-  // anymal->getFrameAngularVelocity("base_LF_HAA",rsvDebug);
-  // myvDebug = r->getLinkByName("LF_HIP")->worldOm;
-
-  anymal->getFrameAngularVelocity("LF_HAA",rsvDebug);
-  myvDebug = r->getLinkByName("LF_HIP")->fullOm;
-  std::cout << "Debug VELOCITY : " << myvDebug.transpose() << " (err: " << (myvDebug - rsvDebug.e()).norm() << ")" << std::endl;
+    Eigen::Vector3d myBase, myLF, myRF, myLH, myRH, myDebug;
+    myBase = r->getPos("base");
+    myLF   = r->getPos("LF_FOOT");
+    myRF   = r->getPos("RF_FOOT");
+    myLH   = r->getPos("LH_FOOT");
+    myRH   = r->getPos("RH_FOOT");
 
 
-  // std::cout << "FOOT POSITIONS : " << std::endl;
-  // std::cout << "   LF: " << myLF.transpose() << " (err: " << (myLF - rsLF.e()).norm() << ")" << std::endl;
-  // std::cout << "   RF: " << myRF.transpose() << " (err: " << (myRF - rsRF.e()).norm() << ")" << std::endl;
-  // std::cout << "   LH: " << myLH.transpose() << " (err: " << (myLH - rsLH.e()).norm() << ")" << std::endl;
-  // std::cout << "   RH: " << myRH.transpose() << " (err: " << (myRH - rsRH.e()).norm() << ")" << std::endl;
+    Eigen::Vector3d myvBase, myvLF, myvRF, myvLH, myvRH, myvDebug;
+    myvBase = r->getVel("base");
+    myvLF   = r->getVel("LF_FOOT");
+    myvRF   = r->getVel("RF_FOOT");
+    myvLH   = r->getVel("LH_FOOT");
+    myvRH   = r->getVel("RH_FOOT");
 
-  std::cout << "Base VELOCITY : " << myvBase.transpose() << " (err: " << (myvBase - rsvBase.e()).norm() << ")" << std::endl;
-  std::cout << "FOOT VELOCITIES : " << std::endl;
-  std::cout << "   LF: " << myvLF.transpose() << " (err: " << (myvLF - rsvLF.e()).norm() << ")" << std::endl;
-  std::cout << "   RF: " << myvRF.transpose() << " (err: " << (myvRF - rsvRF.e()).norm() << ")" << std::endl;
-  std::cout << "   LH: " << myvLH.transpose() << " (err: " << (myvLH - rsvLH.e()).norm() << ")" << std::endl;
-  std::cout << "   RH: " << myvRH.transpose() << " (err: " << (myvRH - rsvRH.e()).norm() << ")" << std::endl;
+    // anymal->getFrameVelocity("base_LF_HAA", rsvDebug);
+    // myvDebug = r->getLinkByName("LF_HIP")->fullV;
+
+    // anymal->getFrameAngularVelocity("base_LF_HAA",rsvDebug);
+    // myvDebug = r->getLinkByName("LF_HIP")->worldOm;
+
+    // anymal->getFrameAngularVelocity("LF_HAA",rsvDebug);
+    // myvDebug = r->getLinkByName("LF_HIP")->fullOm;
+    // std::cout << "Debug VELOCITY : " << myvDebug.transpose() << " (err: " << (myvDebug - rsvDebug.e()).norm() << ")" << std::endl;
 
 
-  server->getVisualObject("p0_mine")->setPosition(myBase);
-  server->getVisualObject("p1_mine")->setPosition(myLF);
-  server->getVisualObject("p2_mine")->setPosition(myRF);
-  server->getVisualObject("p3_mine")->setPosition(myLH);
-  server->getVisualObject("p4_mine")->setPosition(myRH);
+    // std::cout << "FOOT POSITIONS : " << std::endl;
+    // std::cout << "   LF: " << myLF.transpose() << " (err: " << (myLF - rsLF.e()).norm() << ")" << std::endl;
+    // std::cout << "   RF: " << myRF.transpose() << " (err: " << (myRF - rsRF.e()).norm() << ")" << std::endl;
+    // std::cout << "   LH: " << myLH.transpose() << " (err: " << (myLH - rsLH.e()).norm() << ")" << std::endl;
+    // std::cout << "   RH: " << myRH.transpose() << " (err: " << (myRH - rsRH.e()).norm() << ")" << std::endl;
 
-  server->getVisualObject("v0_mine")->setPosition(myBase);
-  // server->getVisualObject("v0_mine")->setOrientation();
+    // std::cout << "Base VELOCITY : " << myvBase.transpose() << " (err: " << (myvBase - rsvBase.e()).norm() << ")" << std::endl;
+    // std::cout << "FOOT VELOCITIES : " << std::endl;
+    // std::cout << "   LF: " << myvLF.transpose() << " (err: " << (myvLF - rsvLF.e()).norm() << ")" << std::endl;
+    // std::cout << "   RF: " << myvRF.transpose() << " (err: " << (myvRF - rsvRF.e()).norm() << ")" << std::endl;
+    // std::cout << "   LH: " << myvLH.transpose() << " (err: " << (myvLH - rsvLH.e()).norm() << ")" << std::endl;
+    // std::cout << "   RH: " << myvRH.transpose() << " (err: " << (myvRH - rsvRH.e()).norm() << ")" << std::endl;
 
-  std::cout << "FOOT POSITIONS ERROR : "<< (myLF - rsLF.e()).norm()+(myRF - rsRF.e()).norm()+(myLH - rsLH.e()).norm()+(myRH - rsRH.e()).norm() << std::endl;
-  std::cout << "MASS MATRIX ERROR: " << (MTrue.e() - r->M).norm() << std::endl;
 
-  std::cout << std::endl;
+    server->getVisualObject("p0_mine")->setPosition(myBase);
+    server->getVisualObject("p1_mine")->setPosition(myLF);
+    server->getVisualObject("p2_mine")->setPosition(myRF);
+    server->getVisualObject("p3_mine")->setPosition(myLH);
+    server->getVisualObject("p4_mine")->setPosition(myRH);
 
-  std::cout << std::endl;
+    double vScale = 0.1;
+    server->getVisualObject("v0_mine")->setPosition(myBase);
+    server->getVisualObject("v0_mine")->setOrientation(quatPointing(myvBase));
+    server->getVisualObject("v0_mine")->setCylinderSize(0.1,vScale*(myvBase.norm()));
+
+    server->getVisualObject("v1_mine")->setPosition(myLF);
+    server->getVisualObject("v1_mine")->setOrientation(quatPointing(myvLF - myvBase));
+    server->getVisualObject("v1_mine")->setCylinderSize(0.1,vScale*((myvLF - myvBase).norm()));
+    server->getVisualObject("v2_mine")->setPosition(myRF);
+    server->getVisualObject("v2_mine")->setOrientation(quatPointing(myvRF - myvBase));
+    server->getVisualObject("v2_mine")->setCylinderSize(0.1,vScale*((myvRF - myvBase).norm()));
+    server->getVisualObject("v3_mine")->setPosition(myLH);
+    server->getVisualObject("v3_mine")->setOrientation(quatPointing(myvLH - myvBase));
+    server->getVisualObject("v3_mine")->setCylinderSize(0.1,vScale*((myvLH - myvBase).norm()));
+    server->getVisualObject("v4_mine")->setPosition(myRH);
+    server->getVisualObject("v4_mine")->setOrientation(quatPointing(myvRH - myvBase));
+    server->getVisualObject("v4_mine")->setCylinderSize(0.1,vScale*((myvRH - myvBase).norm()));
+
+
+    // server->getVisualObject("v0_mine")->setOrientation();
+    double ePos = (myLF - rsLF.e()).norm()+(myRF - rsRF.e()).norm()+(myLH - rsLH.e()).norm()+(myRH - rsRH.e()).norm();
+    double eVel = (myvLF - rsvLF.e()).norm()+(myvRF - rsvRF.e()).norm()+(myvLH - rsvLH.e()).norm()+(myvRH - rsvRH.e()).norm();
+    double eMass= (MTrue.e() - r->M).norm();
+    std::cout << "FOOT POSITIONS ERROR : "<< ePos  << std::endl;
+    std::cout << "FOOT VELOCITIES ERROR: "<< eVel  << std::endl;
+    std::cout << "MASS MATRIX ERROR    : "<< eMass << std::endl;
+
+    if(std::max(std::max(ePos,eVel),eMass) < 1e-12){std::cout << std::endl;}
+    else{std::cout << "!!SANITY CHECK FAILED!!" << std::endl;}
+
+
   /// TEMPLATE (add return condition here)
   if(err >= 1e-12){std::cout << "STEP FAILED" << std::endl;}
   return (err < 1e-12);
