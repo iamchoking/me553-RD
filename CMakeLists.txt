@@ -16,7 +16,7 @@ create_executable(ex1_chh   src/ex1_chh.cpp)
 create_executable(ex2_chh   src/ex2_chh.cpp)
 create_executable(ex3_chh   src/ex3_chh.cpp)
 create_executable(ex4_chh   src/ex4_chh.cpp)
-
+create_executable(ex5_chh   src/ex5_chh.cpp)
 
 # examples
 create_executable(rotation_example_angle_axis src/rotation_example_angle_axis.cpp)
