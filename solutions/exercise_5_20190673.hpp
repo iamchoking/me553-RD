@@ -649,7 +649,8 @@ public:
       Xbpdot.setZero();
 
       ubdot = (getS().transpose()*Ma*getS()).inverse() * (gf.segment(0,6) - getS().transpose()*Ma*(getSdot() * gv.segment(0,6)) - getS().transpose()*ba);
-      fullA = getS()*ubdot + getSdot()*gv[worldT.gvIdx];
+      // std::cout << "ubdot calculated size: " << ubdot.rows() << "x" << ubdot.cols() << std::endl;
+      fullA = getS()*ubdot + getSdot()*gv.segment(0,6);
 
     }
     else{
@@ -662,7 +663,7 @@ public:
       Xbpdot.block<3,3>(3,0) = skew3d( skew3d(parent->fullOm) * (fullT.originPos - parent->fullT.originPos) ); //sketchy line
 
       ubdot = (getS().transpose()*Ma*getS()).inverse() * (gf.segment(worldT.gvIdx,1) - getS().transpose()*Ma*(getSdot() * gv[worldT.gvIdx] + Xbpdot.transpose()*wp + Xbp.transpose()*wpdot) - getS().transpose()*ba);
-
+      // std::cout << "ubdot calculated size: " << ubdot.rows() << "x" << ubdot.cols() << std::endl;
       fullA = getS()*ubdot + getSdot()*gv[worldT.gvIdx] + Xbpdot.transpose()*wp + Xbp.transpose()*wpdot;
     }
     // std::cout << "ubdot for [" << name << "]: " << ubdot.transpose() << std::endl;
@@ -1127,16 +1128,17 @@ public:
     if(!calcKin){throw(std::invalid_argument("[ABA] Kinematics not yet calculated"));}
     if(!calcDiffKin){throw(std::invalid_argument("[ABA] Velocites not yet calculated"));}
 
-    Eigen::VectorXd a(gvDim);
-
+    Eigen::VectorXd a;
+    a.resize(gvDim);
     // pass 02: (leaf -> root) get ABI for each link (with mass)
     for(int i = int(gvDim) - 1; i >= 5;--i){ // we end at 5 since index 0-5 is the base link
       auto link = getLinkByGvIdx(i);
       link->calcLinkABI(gv,gf);
     }
-    
+    // pass 03: calculate body acceleration
     a.setZero();
     for(int i = 5;i<gvDim;i++){
+      // std::cout << "calc for index " << i <<std::endl;
       if(i == 5){
         a.segment(0,6) = root->calcAccFromABI(gv,gf);
         continue;
@@ -1144,9 +1146,11 @@ public:
       a[i] = (getLinkByGvIdx(i)->calcAccFromABI(gv,gf)) [0];
 
     }
+    // std::cout << "ABA finished" << std::endl;
 
     // finally, subtract gravitational acceleration
     a[2] -= 9.81;
+    std::cout << std::endl;
 
     // std::cout << "Calculated acceleration is " << std::endl << a.transpose() << std::endl;
     return a;
@@ -1836,6 +1840,7 @@ inline Eigen::VectorXd computeGeneralizedAcceleration (const Eigen::VectorXd& gc
   auto r = initRobot();
   r->setState(gc,gv);
   r->setForce(gf);
+
   r->calculateKinematics();
   r->calculateDiffKinematics();
 
