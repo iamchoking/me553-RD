@@ -1,3 +1,4 @@
+
 %<USER>
 % gen.coordinates
 syms th1 th2 real %gc
