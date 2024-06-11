@@ -77,10 +77,24 @@ Eigen::Vector4d rotToQuat(Eigen::Matrix3d rot){ // this is used only for visuali
 
 Eigen::Vector4d quatPointing(Eigen::Vector3d dir){ // this is used only for visualization and nowhere else!
   //quaternion that points the z vector to wherever you want
-  dir.normalize();
-  Eigen::Vector3d z(0,0,1);
-  Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(z,dir);
+  // dir.normalize();
+  Eigen::Vector3d axis(1,0,0);
+  Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(axis,dir);
   return q.coeffs();
+  // Eigen::Vector3d axis;
+  // axis << 1,0,0;
+  // dir.normalize();
+
+  // Eigen::Vector3d v = skew3d(axis) * dir;
+  // double s = v.norm(); //sine of angle
+  // double c = (axis.transpose() * dir); //cosine of angle
+
+  // Eigen::Matrix3d R = Eigen::Matrix3d::Identity() + skew3d(v) + (1.0/(1+c))*(skew3d(v)*skew3d(v));
+  // // R.setIdentity();
+  // // R = rpyToRot(M_PI/2,0,0);
+  // // R = rpyToRot(0,M_PI/2,0);
+  // // R = rpyToRot(0,0,M_PI/2);
+  // return rotToQuat(R);
 }
 
 class Trans {
@@ -432,8 +446,14 @@ public:
     if(typ == 'b'){
       worldV = Eigen::Vector3d::Zero(); // remember, the "i" joint of floating base is fixed to ground.
       worldOm = Eigen::Vector3d::Zero();
-      fullV = gv.segment(0,3);
-      fullOm = gv.segment(3,3);
+      if(worldT.typ == 'b'){ // floating base case
+        fullV = gv.segment(0,3);
+        fullOm = gv.segment(3,3);
+      }
+      else{ //fixed base case
+        fullV = worldV;
+        fullOm = worldOm;
+      }
       // std::cout << "base velocity calculated as " << fullV.transpose() << " / " << fullOm.transpose() << std::endl;
     }
     else{
@@ -530,6 +550,7 @@ public:
     for(auto child:children){
       compI.merge(&(child->compI));
     }
+    // std::cout << "[" << name << "] Composite Inertia Calculated" << std::endl;
 
     calcComp = true;
     // return;
@@ -556,8 +577,9 @@ public:
     }
 
     // propagating through joint ( i --> i' )
-    if(typ == 'b'){
-      fullA = worldA + gvdot.segment(0,6);
+    if(typ == 'b'){ //floating base case
+      if(worldT.typ == 'b'){fullA = worldA + gvdot.segment(0,6);}
+      else{fullA = worldA;} //fixed base case
     }
     else if (typ == 'a'){
 
@@ -571,13 +593,15 @@ public:
         Eigen::Vector3d rp = fullT.originPos - worldT.originPos;
         fullA.segment(0,3) << worldA.segment(0,3) + skew3d( worldA.segment(3,3) )* rp + skew3d(worldOm)*(skew3d(worldOm)*rp);
         fullA.segment(3,3) << worldA.segment(3,3);
-        std::cout << "[" << name << "] prismatic acceleration propagation: intermediate Acc: " << fullA.transpose() << std::endl;
-        std::cout << "Sdot: " << getSdot().transpose() << " S:" << getS().transpose() << std::endl;
-        std::cout << "gv  : " << gv[worldT.gvIdx] << "  gvdot: " << gvdot[worldT.gvIdx] << std::endl;
+        // std::cout << "[" << name << "] prismatic acceleration propagation: intermediate Acc: " << fullA.transpose() << std::endl;
+        // std::cout << "Sdot: " << getSdot().transpose() << " S:" << getS().transpose() << std::endl;
+        // std::cout << "gv  : " << gv[worldT.gvIdx] << "  gvdot: " << gvdot[worldT.gvIdx] << std::endl;
         fullA = fullA + getSdot() * gv[worldT.gvIdx] + getS() * gvdot[worldT.gvIdx];
-        std::cout << "fullA: " << fullA.transpose() << std::endl;
+        // std::cout << "fullA: " << fullA.transpose() << std::endl;
       }
-
+      else if(worldT.typ == 'f'){
+        fullA = worldA;
+      }
     }
     else{ // fixed joints have no axis / actuation (same with worldA)
       fullA = worldA;
@@ -900,7 +924,8 @@ public:
   }
 
   int findLinkIdx(const int& gvIndex){ //find index with gv index
-    if(gvIndex < 6){return 0;} //base link case
+    bool fBase = (root->worldT.typ == 'b');
+    if(fBase && gvIndex < 6){return 0;} //floating base link case
     for(size_t i = 0;i<links.size();i++){
       if(links[i]->bodyT.gvIdx == gvIndex){return int(i);}
     }
@@ -1080,19 +1105,27 @@ public:
     Link* lj;
 
     int i;
+
+    bool fBase = (root->worldT.typ == 'b');
+
     for(int j = int(gvDim);j >= 0;--j){ // from leaf to root
-      if(j>0 && j<6){continue;} //base cases redundant
-      if(findLinkIdx(j) < 0){continue;} //"not coded yet"
+      if(fBase && (j>0 && j<6)){continue;} //floating base: (1~5) is redundant
+      if(findLinkIdx(j) < 0){continue;} //not actuated
       lj = getLinkByGvIdx(j);
       li = lj;
       while(li != nullptr){
         i = li->worldT.gvIdx;
-        if(li->typ == 'b'){i = 0;}
+        if(fBase && li->typ == 'b'){i = 0;}
+        if(i<0){break;} // fixed base case ("a parent is not actuated")
 
         tempX.setIdentity();
         if(i != j){tempX.block<3,3>(0,3) = -skew3d(lj->fullT.originPos - li->fullT.originPos);}
         tempM = lj->getS().transpose() * lj->getSpatialCompositeInertia() * tempX * li->getS();
-        if(i == 0){
+
+        // std::cout << "M_" << i << j << std::endl;
+        // std::cout << tempM << std::endl;
+
+        if(fBase && (i == 0)){ // only applicable for floating base relations
           if(j == 0){ // 6x6 case
             M.block<6,6>(i,j) = tempM;
           }
@@ -1101,8 +1134,10 @@ public:
             M.block<6,1>(i,j) = tempM.transpose(); // !! careful !! (this line (without transpose) caused errors in debug mode)
             M.block<1,6>(j,i) = tempM;
           }
+          // std::cout << "written as floating base case" << std::endl;
         }
         else{
+          // std::cout << "putting in M_" << i << j << " = " << tempM << std::endl;
           M.block<1,1>(i,j) = tempM;
           if(i != j){M.block<1,1>(j,i) = tempM.transpose();}
         }
@@ -1141,6 +1176,7 @@ public:
     Eigen::VectorXd gvdot;
     worldAcc << 0,0,9.81*gravity,0,0,0; // [opt1] gravity as acceleration
     // worldAcc.setZero(); // [opt2] gravity as force
+    bool fBase = root->worldT.typ == 'b';
 
     gvdot.resize(gvDim);
     gvdot.setZero();
@@ -1160,7 +1196,7 @@ public:
 
 
     for(int i = int(gvDim) - 1; i >= 0;--i){
-      if(i <= 5){ // base case
+      if(fBase && i <= 5){ // base case
         auto link = root;
         // std::cout << "calculating NE for " << link->name << std::endl;
         link -> calcLinkNE(); // [opt1] gravity as acceleration
@@ -1183,21 +1219,25 @@ public:
     // pass 01: (root -> leaf) get joint positions and velocities
     // calculateKinematics();
     // calculateDiffKinematics();
+    bool fBase = root->worldT.typ == 'b';
+    
     if(!calcKin){throw(std::invalid_argument("[ABA] Kinematics not yet calculated"));}
     if(!calcDiffKin){throw(std::invalid_argument("[ABA] Velocites not yet calculated"));}
 
     Eigen::VectorXd a;
     a.resize(gvDim);
     // pass 02: (leaf -> root) get ABI for each link (with mass)
-    for(int i = int(gvDim) - 1; i >= 5;--i){ // we end at 5 since index 0-5 is the base link
+    for(int i = int(gvDim) - 1; i >= 0;--i){
+      if(fBase && i < 5){break;} // floating base case
       auto link = getLinkByGvIdx(i);
       link->calcLinkABI(gv,gf);
     }
     // pass 03: calculate body acceleration
     a.setZero();
-    for(int i = 5;i<gvDim;i++){
+    for(int i = 0;i<gvDim;i++){
+      if(fBase && i < 5){continue;} // floating base case
       // std::cout << "calc for index " << i <<std::endl;
-      if(i == 5){
+      if(fBase && i == 5){
         a.segment(0,6) = root->calcAccFromABI(gv,gf);
         continue;
       }
@@ -1207,7 +1247,7 @@ public:
     // std::cout << "ABA finished" << std::endl;
 
     // finally, subtract gravitational acceleration
-    a[2] -= 9.81;
+    if(fBase){a[2] -= 9.81;}
     // std::cout << std::endl;
     // std::cout << "Calculated acceleration is " << std::endl << a.transpose() << std::endl;
     udot = a;
@@ -1258,7 +1298,7 @@ public:
 //ADDITIONALLY: LF_KFE / RF_HFE
 
 //HARD-CODE #1: adding transformation relations
-void initRobotTrans(Robot& robot,bool prismatic = true) {
+void initAnymalTrans(Robot& robot,bool prismatic = true) {
   // HARD-CODING: Link transformations.
 
   Trans tempT = Trans();
@@ -1502,7 +1542,7 @@ void initRobotTrans(Robot& robot,bool prismatic = true) {
 }
 
 //HARD-CODE #2: adding mass and inertia
-void initRobotInertia(Robot& robot){
+void initAnymalInertia(Robot& robot){
   auto tempT  = Trans(); // the "cumulating" trans
   auto tempTT = Trans(); // the "adding" trans
   auto tempI  = Inertia();
@@ -1898,25 +1938,91 @@ void initRobotInertia(Robot& robot){
 }
 
 //separate function keeps initialization static throughout runtime
-Robot* initRobot(bool prismatic = false){
+Robot* initAnymal(bool prismatic = false){
   static Robot robot = Robot(19,18);
   if(!robot.links.empty()){
     // std::cout << "using static robot object (no re-init)" << std::endl;
     robot.resetCalculations();
   }
   else {
-    initRobotTrans(robot,prismatic);
-    initRobotInertia(robot);
+    initAnymalTrans(robot,prismatic);
+    initAnymalInertia(robot);
     // std::cout << "robot initialized with " << robot.links.size() << " bodies" << std::endl;
   }
   return &robot;
 }
 
+
+// hard coding for "robot_3D" planar robot
+void initRobot3DTrans(Robot& robot){
+  // HARD-CODING: Link transformations.
+
+  Trans tempT = Trans();
+
+  //////////////////////      BASE     ////////////////////////
+  // "base"
+  auto link1    = new Link("link1",'b'); // <--base
+  tempT.setProfile(0,0,0,  0,0,0, 'f');
+  link1 -> addTrans(tempT);
+  // std::cout << "base transformation set as " << base -> bodyT.typ << std::endl;
+  robot.addLink(link1);
+
+  auto link2    = new Link("link2",'a');
+  tempT.setProfile(0,0,0.3, 0,0,0, 'r', 1,0,0, 0,0);
+  link2 -> addTrans(tempT);
+  robot.addLink(link2,link1);
+
+  auto link3    = new Link("link3",'a');
+  tempT.setProfile(0,0,0.3, 0,0,0, 'r', 1,0,0, 1,1);
+  link3 -> addTrans(tempT);
+  robot.addLink(link3,link2);
+
+  auto link4    = new Link("link4",'a');
+  tempT.setProfile(0,0,0.3, 0,0,0, 'p', 0,0,1, 2,2);
+  link4 -> addTrans(tempT);
+  robot.addLink(link4,link3);
+
+  auto ee      = new Link("ee",'e');
+  tempT.setProfile(0,0,0.3, 0,0,0);
+  ee -> addTrans(tempT);
+  robot.addLink(ee,link4);
+}
+
+void initRobot3DInertia(Robot& robot){
+  auto tempT  = Trans(); // the "cumulating" trans
+  auto tempTT = Trans(); // the "adding" trans
+  auto tempI  = Inertia();
+
+  // mass value="6.222"/> <inertia ixx="0.017938806" ixy="0.00387963" ixz="0.001500772" iyy="0.370887745" iyz="0.370887745" izz="0.372497653"/>
+  tempI.setProfile(0,0,0.2, 0,0,0,  1,  0.001,0,0,0.001,0,0.001);
+  robot.getLinkByName("link2")->addInertia(tempI);
+
+  tempI.setProfile(0,0,0.2, 0,0,0,  1,  0.001,0,0,0.001,0,0.001);
+  robot.getLinkByName("link3")->addInertia(tempI);
+
+  tempI.setProfile(0,0,0.2, 0,0,0,  1,  0.001,0,0,0.001,0,0.001);
+  robot.getLinkByName("link4")->addInertia(tempI);
+
+}
+
+Robot* initRobot3D(){
+  static Robot robot = Robot(3,3);
+  if(!robot.links.empty()){
+    robot.resetCalculations();
+  }
+  else{
+    initRobot3DTrans(robot);
+    initRobot3DInertia(robot);
+  }
+  return &robot;
+}
+
+
 // the homework functions
 
 /// ex1: kinematics
 Eigen::Vector3d getEndEffectorPosition (const Eigen::VectorXd& gc) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc);
   r->calculateKinematics();
 
@@ -1925,7 +2031,7 @@ Eigen::Vector3d getEndEffectorPosition (const Eigen::VectorXd& gc) {
 
 /// ex2: diff. kinematics
 inline Eigen::Vector3d getFootLinearVelocity (const Eigen::VectorXd& gc, const Eigen::VectorXd& gv) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc,gv);
   r->calculateKinematics();
   r->calculateDiffKinematics();
@@ -1934,7 +2040,7 @@ inline Eigen::Vector3d getFootLinearVelocity (const Eigen::VectorXd& gc, const E
 }
 
 inline Eigen::Vector3d getFootAngularVelocity (const Eigen::VectorXd& gc, const Eigen::VectorXd& gv) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc,gv);
   r->calculateKinematics();
   r->calculateDiffKinematics();
@@ -1944,7 +2050,7 @@ inline Eigen::Vector3d getFootAngularVelocity (const Eigen::VectorXd& gc, const 
 
 /// ex3: CRBA
 inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc);
   r->calculateKinematics();
   r->calculateCompositeInertia();
@@ -1955,7 +2061,7 @@ inline Eigen::MatrixXd getMassMatrix (const Eigen::VectorXd& gc) {
 
 /// ex4: RNE
 inline Eigen::VectorXd getNonlinearities (const Eigen::VectorXd& gc, const Eigen::VectorXd& gv) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc,gv);
   r->calculateKinematics();
   r->calculateDiffKinematics();
@@ -1969,7 +2075,7 @@ inline Eigen::VectorXd getNonlinearities (const Eigen::VectorXd& gc, const Eigen
 
 /// ex5: ABA
 inline Eigen::VectorXd computeGeneralizedAcceleration (const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eigen::VectorXd& gf) {
-  auto r = initRobot();
+  auto r = initAnymal();
   r->setState(gc,gv);
   r->setForce(gf);
 

@@ -12,12 +12,13 @@ create_executable(exercise4 src/exercise4.cpp)
 create_executable(exercise5 src/exercise5.cpp)
 
 # augmented skeleton codes
-create_executable(ex1_chh    src/ex1_chh.cpp)
-create_executable(ex2_chh    src/ex2_chh.cpp)
-create_executable(ex3_chh    src/ex3_chh.cpp)
-create_executable(ex4_chh    src/ex4_chh.cpp)
-create_executable(ex5_chh    src/ex5_chh.cpp)
-create_executable(ex-fin_chh src/ex-fin_chh.cpp)
+create_executable(ex1    src/ex1_chh.cpp)
+create_executable(ex2    src/ex2_chh.cpp)
+create_executable(ex3    src/ex3_chh.cpp)
+create_executable(ex4    src/ex4_chh.cpp)
+create_executable(ex5    src/ex5_chh.cpp)
+create_executable(fin    src/ex-fin_chh.cpp)
+create_executable(fin-fixed    src/ex-fin-fixed_chh.cpp)
 
 # examples
 create_executable(rotation_example_angle_axis src/rotation_example_angle_axis.cpp)

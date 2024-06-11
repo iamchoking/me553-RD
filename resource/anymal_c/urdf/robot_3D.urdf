@@ -66,7 +66,7 @@
         </inertial>
     </link>
 
-    <joint name="link2Tolink3" type="revolute">
+    <joint name="link1Tolink3" type="revolute">
         <parent link="link2"/>
         <child link="link3"/>
         <origin xyz="0 0 0.3"/>
@@ -97,7 +97,6 @@
         <parent link="link3"/>
         <child link="link4"/>
         <origin xyz="0 0 0.3"/>
-        <axis xyz="0 0 1"/>
-        <limit effort="80.0" lower="-0.1" upper="0.3" velocity="7.5"/>
+        <axis xyz="0 1 0"/>
     </joint>
 </robot>

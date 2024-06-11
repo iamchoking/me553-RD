@@ -22,7 +22,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
   std::cout << "STEP[" << t << "]" << std::endl;
   /// TEMPLATE (do some testing here)
 
-  auto r = initRobot(PRISMATIC);
+  auto r = initAnymal(PRISMATIC);
 
   r->setState(gc,gv); // consolidated gc,gv into state var.s (ex4)
   r->setForce(gf);
@@ -127,7 +127,11 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
       // std::cout << "ROBOT COM (MINE)    : " << r->getLinkByName("base")->compI.com.originPos.transpose() << std::endl;
       // std::cout << "ROBOT COM (RAISIM)  : " << compositeComs[0].e().transpose() << std::endl;
       // std::cout<<std::endl;
+      std::cout << "MASS-MATRIX (RAISIM) :" << std::endl;
+      std::cout << MTrue << std::endl;
 
+      std::cout << "MASS-MATRIX (MINE) :" << std::endl;
+      std::cout << r->M << std::endl;
     // Nonlinear term related
       std::cout << "Nonlinear Term (MINE)   : " << r->b.transpose() << std::endl;
       std::cout << "Nonlinear Term (RAISIM) : " << bTrue.transpose() << std::endl;
