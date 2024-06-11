@@ -1,8 +1,9 @@
 #define _MAKE_STR(x) __MAKE_STR(x)
 #define __MAKE_STR(x) #x
 
-#include "exercise_1_20190673.hpp"
 #include "raisim/RaisimServer.hpp"
+// #include "exercise_1_20190673.hpp"
+#include "fin-prep_20190673.hpp"
 
 int main(int argc, char* argv[]) {
   // create raisim world

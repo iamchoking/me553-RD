@@ -128,6 +128,10 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, size_t t,
     // std::cout << "raisim says LF shank acc is  : " << rsaDebug.e().transpose()   << std::endl;
     // anymal->getFrameAcceleration("RH_KFE",rsaDebug);
     // std::cout << "raisim says RH shank acc is  : " << rsaDebug.e().transpose()   << std::endl;
+    // anymal->getFrameAcceleration("LF_HAA",rsaDebug);
+    // std::cout << "raisim says LF hip acc is  : " << rsaDebug.e().transpose()   << std::endl;
+    // anymal->getFrameAcceleration("RH_HAA",rsaDebug);
+    // std::cout << "raisim says RH hip acc is  : " << rsaDebug.e().transpose()   << std::endl;
 
 
     //CURSED
