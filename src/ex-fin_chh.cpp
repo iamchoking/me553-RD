@@ -10,10 +10,11 @@
 
 /// CHECKING SCRIPT START
 
-bool END_IF_FAIL = false;
+bool END_IF_FAIL = true;
 bool INIT_RANDOMIZE = true;
 bool SUPPLY_GF      = true;
 bool PRISMATIC = true;
+bool MAX_ERROR = 1e-9;
 
 size_t SIM_STEPS = 2000;
 
@@ -21,7 +22,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
   std::cout << "STEP[" << t << "]" << std::endl;
   /// TEMPLATE (do some testing here)
 
-  auto r = initRobot();
+  auto r = initRobot(PRISMATIC);
 
   r->setState(gc,gv); // consolidated gc,gv into state var.s (ex4)
   r->setForce(gf);
@@ -217,13 +218,11 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
     std::cout << "NONLINEARITY ERROR   : "<< eNonlin << std::endl;
     std::cout << "ACCELERATION ERROR   : "<< eAcc    << std::endl;
 
-    if(ePos + eVel + eMass + eNonlin + eAcc < 1e-10){std::cout << std::endl;}
-    else{std::cout << "!!SANITY CHECK FAILED!!" << std::endl;}
+    if(ePos + eVel + eMass + eNonlin + eAcc < MAX_ERROR){std::cout << std::endl;}
+    else{std::cout << "!!SANITY CHECK FAILED!!" << std::endl;return false;}
 
-
-  /// Return condition
-  if(err >= 1e-9){std::cout << "STEP FAILED" << std::endl;}
-  return (err < 1e-9);
+  if(err >= MAX_ERROR){std::cout << "STEP FAILED" << std::endl;return false;}
+  return true;
 }
 
 int main(int argc, char* argv[]) {
@@ -287,10 +286,10 @@ int main(int argc, char* argv[]) {
     utils::gvRandomize(gf,10);
   }
 
+  if(!SUPPLY_GF){gf.setZero();}
+
   anymal->setState(gc, gv);
-  if(SUPPLY_GF){
-    anymal->setGeneralizedForce(gf);
-  }
+  anymal->setGeneralizedForce(gf);
 
   server.launchServer();
   server.focusOn(anymal);

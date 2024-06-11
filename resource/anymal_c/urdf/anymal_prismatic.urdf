@@ -703,7 +703,8 @@
         </inertial>
     </link>
     <!-- joint Drive output -->
-    <joint name="LF_KFE" type="revolute">
+    <!-- <joint name="LF_KFE" type="revolute"> -->
+    <joint name="LF_KFE" type="prismatic">
         <parent link="LF_KFE"/>
         <child link="LF_SHANK"/>
         <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -876,7 +877,8 @@
         </inertial>
     </link>
     <!-- joint Drive output -->
-    <joint name="RF_HFE" type="revolute">
+    <!-- <joint name="RF_HFE" type="revolute"> -->
+    <joint name="RF_HFE" type="prismatic">
         <parent link="RF_HFE"/>
         <child link="RF_THIGH"/>
         <origin rpy="0 0 0" xyz="0 0 0"/>

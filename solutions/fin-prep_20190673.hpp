@@ -1147,16 +1147,16 @@ public:
 
     calculateAccelerations(worldAcc,gvdot);
 
-    std::cout << "calculated base acc is " << root->fullA.transpose() << std::endl;
-    std::cout << "calculated LF_HIP worldA is " << getLinkByName("LF_HIP")->worldA.transpose() << std::endl;
-    std::cout << "calculated LF_HIP fullA is " << getLinkByName("LF_HIP")->fullA.transpose() << std::endl;
-    std::cout << "calculated RH_HIP worldA is " << getLinkByName("RH_HIP")->worldA.transpose() << std::endl;
-    std::cout << "calculated RH_HIP fullA is " << getLinkByName("RH_HIP")->fullA.transpose() << std::endl;
+    // std::cout << "calculated base acc is " << root->fullA.transpose() << std::endl;
+    // std::cout << "calculated LF_HIP worldA is " << getLinkByName("LF_HIP")->worldA.transpose() << std::endl;
+    // std::cout << "calculated LF_HIP fullA is " << getLinkByName("LF_HIP")->fullA.transpose() << std::endl;
+    // std::cout << "calculated RH_HIP worldA is " << getLinkByName("RH_HIP")->worldA.transpose() << std::endl;
+    // std::cout << "calculated RH_HIP fullA is " << getLinkByName("RH_HIP")->fullA.transpose() << std::endl;
 
-    std::cout << "calculated LF_FOOT fullA(=worldA) is " << getLinkByName("LF_FOOT")->worldA.transpose() << std::endl;
-    std::cout << "calculated RF_FOOT fullA(=worldA) is " << getLinkByName("RF_FOOT")->worldA.transpose() << std::endl;
-    std::cout << "calculated LH_FOOT fullA(=worldA) is " << getLinkByName("LH_FOOT")->worldA.transpose() << std::endl;
-    std::cout << "calculated RH_FOOT fullA(=worldA) is " << getLinkByName("RH_FOOT")->worldA.transpose() << std::endl;
+    // std::cout << "calculated LF_FOOT fullA(=worldA) is " << getLinkByName("LF_FOOT")->worldA.transpose() << std::endl;
+    // std::cout << "calculated RF_FOOT fullA(=worldA) is " << getLinkByName("RF_FOOT")->worldA.transpose() << std::endl;
+    // std::cout << "calculated LH_FOOT fullA(=worldA) is " << getLinkByName("LH_FOOT")->worldA.transpose() << std::endl;
+    // std::cout << "calculated RH_FOOT fullA(=worldA) is " << getLinkByName("RH_FOOT")->worldA.transpose() << std::endl;
 
 
     for(int i = int(gvDim) - 1; i >= 0;--i){
@@ -1174,9 +1174,6 @@ public:
       // link -> calcLinkNE(gravity); // [opt2] gravity as force
       b.segment(i,1) << (link->getS()).transpose() * link->fi;
     }
-
-    std::cout << std::endl;
-    std::cout << "calculated LF_HIP force is " << getLinkByName("LF_HIP")->fi.transpose() << std::endl;
 
     // std::cout << "calculated b: " << b.transpose() << std::endl;
     resetAcc();
@@ -1258,9 +1255,10 @@ public:
 };
 
 //PRISMATIC Alterations: LF_HAA / RF_HAA / LH_HFE / RH_KFE changed to prismatic joints
+//ADDITIONALLY: LF_KFE / RF_HFE
 
 //HARD-CODE #1: adding transformation relations
-void initRobotTrans(Robot& robot,bool prismatic = false) {
+void initRobotTrans(Robot& robot,bool prismatic = true) {
   // HARD-CODING: Link transformations.
 
   Trans tempT = Trans();
@@ -1312,6 +1310,7 @@ void initRobotTrans(Robot& robot,bool prismatic = false) {
 
   // <<LF_KFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="1 0 0/>" (gc[9])
   tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  1, 0, 0, 9, 8);
+  if(prismatic){tempT.setProfile(0, 0, 0,   0, 0, 0, 'p',  1, 0, 0, 9, 8);}
   LFShank -> addTrans(tempT);
   robot.addLink(LFShank,LFThigh);
 
@@ -1351,6 +1350,7 @@ void initRobotTrans(Robot& robot,bool prismatic = false) {
 
   // <<RF_HFE>> (revolute) <origin rpy="0 0 0" xyz="0 0 0"/> <axis xyz="-1 0 0/>" (gc[11])
   tempT.setProfile(0, 0, 0,   0, 0, 0, 'r',  -1, 0, 0, 11, 10);
+  if(prismatic){tempT.setProfile(0, 0, 0,   0, 0, 0, 'p',  -1, 0, 0, 11, 10);}
   RFThigh -> addTrans(tempT);
   robot.addLink(RFThigh,RFHip);
 
@@ -1898,14 +1898,14 @@ void initRobotInertia(Robot& robot){
 }
 
 //separate function keeps initialization static throughout runtime
-Robot* initRobot(){
+Robot* initRobot(bool prismatic = false){
   static Robot robot = Robot(19,18);
   if(!robot.links.empty()){
     // std::cout << "using static robot object (no re-init)" << std::endl;
     robot.resetCalculations();
   }
   else {
-    initRobotTrans(robot);
+    initRobotTrans(robot,prismatic);
     initRobotInertia(robot);
     // std::cout << "robot initialized with " << robot.links.size() << " bodies" << std::endl;
   }

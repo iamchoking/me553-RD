@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
 
   // visualization
   server.launchServer();
-  for (int i=0; i<2000000; i++)
+  for (int i=0; i<10; i++)
     std::this_thread::sleep_for(std::chrono::microseconds(1000));
 
   server.killServer();
