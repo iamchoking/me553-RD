@@ -13,12 +13,6 @@
     <visual>
       <geometry>
         <cylinder radius="0.05" length="40"/>
-  v1 + [l2*cos(th2)*om2;l2*sin(th2)*om2];   v1 + [l2*cos(th2)*om2;l2*sin(th2)*om2]  v1 + [l2*cos(th2)*om2;l2*sin(th2)*om2]; 
-  v1 + [l2*cos(th2)*om2;l2*sin(th2)*om2]; 
-v1 + [l2*cos(th2)*om2;l2*sin(th2)*om2]; 
-; 
-
-
       <origin xyz="0 0 0" rpy="0 1.5708 0"/>
     </visual>
     <inertial>  
