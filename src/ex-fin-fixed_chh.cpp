@@ -11,9 +11,8 @@
 /// CHECKING SCRIPT START
 
 bool END_IF_FAIL = true;
-bool INIT_RANDOMIZE = true;
-bool SUPPLY_GF      = false;
-bool PRISMATIC = true;
+bool INIT_RANDOMIZE = false;
+bool SUPPLY_GF      = true;
 bool MAX_ERROR = 1e-9;
 
 size_t SIM_STEPS = 4000;
@@ -22,7 +21,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
   std::cout << "STEP[" << t << "]" << std::endl;
   /// TEMPLATE (do some testing here)
 
-  auto r = initRobot3D();
+  auto r = initCartpole();
 
   r->setState(gc,gv); // consolidated gc,gv into state var.s (ex4)
   r->setForce(gf);
@@ -66,30 +65,25 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
   std::cout << "------[SANITY-CHECK]------" << std::endl;
 
     raisim::Vec<3> rslink1, rslink2, rslink3, rslink4, rsDebug;
-    rsrobot->getFramePosition("worldTolink1", rslink1);
-    rsrobot->getFramePosition("link1Tolink2", rslink2);
-    rsrobot->getFramePosition("link2Tolink3", rslink3);
-    rsrobot->getFramePosition("link3Tolink4", rslink4);
+    rsrobot->getFramePosition("slider", rslink1);
+    rsrobot->getFramePosition("bar_revolute", rslink2);
+    rsrobot->getFramePosition("bar_revolute2", rslink3);
 
     raisim::Vec<3> rsvlink1, rsvlink2, rsvlink3, rsvlink4, rsvDebug;
-    rsrobot->getFrameVelocity("worldTolink1", rsvlink1);
-    rsrobot->getFrameVelocity("link1Tolink2", rsvlink2);
-    rsrobot->getFrameVelocity("link2Tolink3", rsvlink3);
-    rsrobot->getFrameVelocity("link3Tolink4", rsvlink4);
-
+    rsrobot->getFrameVelocity("slider", rsvlink1);
+    rsrobot->getFrameVelocity("bar_revolute", rsvlink2);
+    rsrobot->getFrameVelocity("bar_revolute2", rsvlink3);
 
     Eigen::Vector3d mylink1, mylink2, mylink3, mylink4, myee, myDebug;
-    mylink1 = r->getPos("link1");
-    mylink2 = r->getPos("link2");
-    mylink3 = r->getPos("link3");
-    mylink4 = r->getPos("link4");
+    mylink1 = r->getPos("slider");
+    mylink2 = r->getPos("rod");
+    mylink3 = r->getPos("rod2");
     myee    = r->getPos("ee");
 
     Eigen::Vector3d myvlink1, myvlink2, myvlink3, myvlink4, myvee, myvDebug;
-    myvlink1 = r->getVel("link1");
-    myvlink2 = r->getVel("link2");
-    myvlink3 = r->getVel("link3");
-    myvlink4 = r->getVel("link4");
+    myvlink1 = r->getVel("slider");
+    myvlink2 = r->getVel("rod");
+    myvlink3 = r->getVel("rod2");
     myvee    = r->getVel("ee");
 
     // Kinematics related
@@ -116,11 +110,11 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
       // std::cout << "MASS-MATRIX (RAISIM) :" << std::endl;
       // std::cout << MTrue << std::endl;
 
-      std::cout << "MASS-MATRIX (MINE) :" << std::endl;
-      std::cout << r->M << std::endl;
+      // std::cout << "MASS-MATRIX (MINE) :" << std::endl;
+      // std::cout << r->M << std::endl;
 
-      std::cout << "INVERTED MASS MATRIX : " << std::endl;
-      std::cout << r->M.inverse() << std::endl;
+      // std::cout << "INVERTED MASS MATRIX : " << std::endl;
+      // std::cout << r->M.inverse() << std::endl;
 
     // Nonlinear term related
       // std::cout << "Nonlinear Term (MINE)   : " << r->b.transpose() << std::endl;
@@ -164,14 +158,15 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
 
     // acceleration (ABA) related
       // auto aCalc = r->udot;
-      // std::cout << "------ COMPUTED ACCELERATION ------" << std::endl;
-      // std::cout << "Input gf: " << gf.transpose() << std::endl << std::endl;
-      // std::cout << "MINE" << std::endl;
-      // // std::cout << "(easy)" << aCalc.transpose() << std::endl;
-      // std::cout << aCalc.transpose() << std::endl;
+      std::cout << "------ COMPUTED ACCELERATION ------" << std::endl;
+      std::cout << "Input gf: " << gf.transpose() << std::endl << std::endl;
+      std::cout << "MINE" << std::endl;
+      // std::cout << "(easy)" << aCalc.transpose() << std::endl;
+      std::cout << r->udot.transpose() << std::endl;
+      std::cout << computeGeneralizedAcceleration(gc,gv,gf).transpose() << std::endl;
 
-      // std::cout << "RAISIM" << std::endl;
-      // std::cout << aTrue.transpose() << std::endl;
+      std::cout << "RAISIM" << std::endl;
+      std::cout << aTrue.transpose() << std::endl;
 
       // // std::cout << "Error : " << (bCalc - bTrue).block<12,12>(6,6).norm() << std::endl;
 
@@ -179,7 +174,7 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
       server->getVisualObject("p1_mine")->setPosition(mylink1);
       server->getVisualObject("p2_mine")->setPosition(mylink2);
       server->getVisualObject("p3_mine")->setPosition(mylink3);
-      server->getVisualObject("p4_mine")->setPosition(mylink4);
+      // server->getVisualObject("p4_mine")->setPosition(mylink4);
 
       server->getVisualObject("p0_mine")->setPosition(myee);
 
@@ -227,7 +222,8 @@ int main(int argc, char* argv[]) {
 
   raisim::ArticulatedSystem* rsrobot;
 
-  rsrobot = world.addArticulatedSystem(std::string(_MAKE_STR(RESOURCE_DIR)) + "/2DrobotArm/robot_3D.urdf"); //vanilla urdf
+  // rsrobot = world.addArticulatedSystem(std::string(_MAKE_STR(RESOURCE_DIR)) + "/2DrobotArm/robot_3D.urdf"); //vanilla urdf
+  rsrobot = world.addArticulatedSystem(std::string(_MAKE_STR(RESOURCE_DIR)) + "/cartPole/doubleCartPole.urdf");
 
   rsrobot -> setComputeInverseDynamics(true); // required to get ground truth in accleleration
 
@@ -261,9 +257,9 @@ int main(int argc, char* argv[]) {
   debugMINE   ->setColor(0,1,0,1);
 
   Eigen::VectorXd gc(rsrobot->getGeneralizedCoordinateDim()), gv(rsrobot->getDOF()), gf(rsrobot->getDOF());
-  gc << 0, 0.54, 0.03;
-  gv << 0.2, 0.3, 0.4;
-  gf << 0.21, 0.36, 0.24;
+  gc << 0.0, 0.1, 0.2; /// Jemin: I'll randomize the gc, gv when grading
+  gv << 0.1, 0.2, 0.3;
+  gf << 0.2, 0.3, 0.4;
   if(INIT_RANDOMIZE){
     utils::gvRandomize(gc,0.3);
     utils::gvRandomize(gv,2);

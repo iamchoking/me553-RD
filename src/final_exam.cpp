@@ -2,11 +2,12 @@
 // Created by Jemin Hwangbo on 2022/04/08.
 //
 
-#include "raisim/RaisimServer.hpp"
-#include "final_exam_STUDENTID.hpp"
-
 #define _MAKE_STR(x) __MAKE_STR(x)
 #define __MAKE_STR(x) #x
+
+#include "raisim/RaisimServer.hpp"
+#include "final_exam_20190673.hpp"
+
 
 int main(int argc, char* argv[]) {
   auto binaryPath = raisim::Path::setFromArgv(argv[0]);
@@ -38,9 +39,10 @@ int main(int argc, char* argv[]) {
 
   if((computeGeneralizedAcceleration(gc, gv, gf) - massMatrix.inverse() * (gf-nonlinearity)).norm() < 1e-8)
     std::cout<<"passed "<<std::endl;
-  else
+  else{
+    std::cout<<"computed acc: " << computeGeneralizedAcceleration(gc,gv,gf).transpose() << std::endl;
     std::cout<<"failed. The acceleration should be "<< (massMatrix.inverse() * (gf-nonlinearity)).transpose() <<std::endl;
-
+  }
   while (true) {
     RS_TIMED_LOOP(world.getTimeStep()*1e6)
     world.integrate();
