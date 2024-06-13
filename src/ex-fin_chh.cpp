@@ -13,7 +13,7 @@
 bool END_IF_FAIL = true;
 bool INIT_RANDOMIZE = true;
 bool SUPPLY_GF      = true;
-bool PRISMATIC = true;
+bool PRISMATIC = false;
 bool MAX_ERROR = 1e-9;
 
 size_t SIM_STEPS = 2000;
@@ -127,16 +127,20 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
       // std::cout << "ROBOT COM (MINE)    : " << r->getLinkByName("base")->compI.com.originPos.transpose() << std::endl;
       // std::cout << "ROBOT COM (RAISIM)  : " << compositeComs[0].e().transpose() << std::endl;
       // std::cout<<std::endl;
-      std::cout << "MASS-MATRIX (RAISIM) :" << std::endl;
-      std::cout << MTrue << std::endl;
+      // std::cout << "MASS-MATRIX (RAISIM) :" << std::endl;
+      // std::cout << MTrue << std::endl;
 
-      std::cout << "MASS-MATRIX (MINE) :" << std::endl;
-      std::cout << r->M << std::endl;
+      // std::cout << "MASS-MATRIX (MINE) :" << std::endl;
+      // std::cout << r->M << std::endl;
+      
+      // std::cout << "INVERSE MASS-MATRIX (MINE)" << std::endl;
+      // std::cout << r->M.inverse() << std::endl;
+
     // Nonlinear term related
-      std::cout << "Nonlinear Term (MINE)   : " << r->b.transpose() << std::endl;
-      std::cout << "Nonlinear Term (RAISIM) : " << bTrue.transpose() << std::endl;
-      std::cout << "Difference : " << (r->b - bTrue).transpose() << std::endl;
-      std::cout << std::endl;
+      // std::cout << "Nonlinear Term (MINE)   : " << r->b.transpose() << std::endl;
+      // std::cout << "Nonlinear Term (RAISIM) : " << bTrue.transpose() << std::endl;
+      // std::cout << "Difference : " << (r->b - bTrue).transpose() << std::endl;
+      // std::cout << std::endl;
 
       raisim::Vec<3> rsaBase, rsaLF, rsaRF, rsaLH, rsaRH, rsaDebug;
       // anymal->getFrameAcceleration("base_to_base_inertia"  , rsaBase);

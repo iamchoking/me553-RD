@@ -109,14 +109,18 @@ bool analyzeStep(const Eigen::VectorXd& gc, const Eigen::VectorXd& gv, const Eig
       // std::cout << "   4: " << myvlink4.transpose() << " (err: " << (myvlink4 - rsvlink4.e()).norm() << ")" << std::endl;
 
     // Composite Mass Related
+      // std::cout << "ROBOT COM (MINE)    : " << r->getLinkByName("link1")->compI.com.originPos.transpose() << std::endl;
+      // std::cout << "ROBOT COM (RAISIM)  : " << compositeComs[0].e().transpose() << std::endl;
+      // std::cout<<std::endl;
+
       // std::cout << "MASS-MATRIX (RAISIM) :" << std::endl;
       // std::cout << MTrue << std::endl;
 
-      // std::cout << "MASS-MATRIX (MINE) :" << std::endl;
-      // std::cout << r->M << std::endl;
-      // std::cout << "ROBOT COM (MINE)    : " << r->getLinkByName("base")->compI.com.originPos.transpose() << std::endl;
-      // std::cout << "ROBOT COM (RAISIM)  : " << compositeComs[0].e().transpose() << std::endl;
-      // std::cout<<std::endl;
+      std::cout << "MASS-MATRIX (MINE) :" << std::endl;
+      std::cout << r->M << std::endl;
+
+      std::cout << "INVERTED MASS MATRIX : " << std::endl;
+      std::cout << r->M.inverse() << std::endl;
 
     // Nonlinear term related
       // std::cout << "Nonlinear Term (MINE)   : " << r->b.transpose() << std::endl;
